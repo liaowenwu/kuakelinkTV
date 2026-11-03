@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/searchOverlay"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:visibility="gone"
+    android:paddingStart="48dp"
+    android:paddingEnd="48dp"
+    android:paddingTop="24dp"
+    android:paddingBottom="24dp"
+    android:background="#E607101D">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/searchTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textColor="#F1F6FC"
+            android:textSize="22sp"
+            android:fontFamily="@string/font_medium" />
+
+        <TextView
+            android:id="@+id/searchHint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#8EABC0"
+            android:textSize="12sp"
+            android:text="@string/search_hint" />
+    </LinearLayout>
+
+    <EditText
+        android:id="@+id/searchInput"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="16dp"
+        android:background="@drawable/pill_bg"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:textColor="#F1F6FC"
+        android:textColorHint="#8EABC0"
+        android:textSize="16sp"
+        android:hint="@string/search_hint"
+        android:singleLine="true"
+        android:imeOptions="actionSearch"
+        android:inputType="text" />
+
+    <TextView
+        android:id="@+id/searchEmpty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="18dp"
+        android:textColor="#8EABC0"
+        android:textSize="14sp"
+        android:visibility="gone"
+        android:text="@string/search_empty" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/searchResults"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="12dp"
+        android:clipToPadding="false"
+        android:clipChildren="false"
+        android:overScrollMode="never"
+        android:scrollbars="none" />
+</LinearLayout>

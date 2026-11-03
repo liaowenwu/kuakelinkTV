@@ -172,6 +172,32 @@ public class QuarkTvClient {
         }
     }
 
+    /** One playable audio file under /资源库/音乐, with its folder's background image when there is one. */
+    public static class MusicSong implements java.io.Serializable {
+        public final String title;
+        public final String artist;
+        public final String path;
+        public final String fid;
+        public final String backgroundUrl;
+
+        public final String lyricsFid;
+        public final boolean video;
+
+        public MusicSong(String title, String artist, String path, String fid, String backgroundUrl) {
+            this(title, artist, path, fid, backgroundUrl, "");
+        }
+
+        public MusicSong(String title, String artist, String path, String fid, String backgroundUrl, String lyricsFid) {
+            this.lyricsFid = lyricsFid;
+            this.video = isVideoFile(path);
+            this.title = title;
+            this.artist = artist == null ? "" : artist;
+            this.path = path;
+            this.fid = fid;
+            this.backgroundUrl = backgroundUrl;
+        }
+    }
+
     private QuarkTvClient(Context context) {
         this.appContext = context.getApplicationContext();
         this.prefs = appContext.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
@@ -621,6 +647,107 @@ public class QuarkTvClient {
         });
     }
 
+    /**
+     * 扫描 /资源库/音乐 下的音频文件，按文件夹分组；每组取同名/封面图作为背景图。
+     */
+    public void fetchMusicLibrary(Callback<List<MusicSong>> callback) {
+        executor.execute(() -> {
+            try {
+                if (!ensureAccessTokenValidSync()) {
+                    postError(callback, "夸克网盘未登录或凭证已过期");
+                    return;
+                }
+                List<MusicSong> songs = new ArrayList<>();
+                List<QuarkFile> rootFiles = listFilesSync("0");
+                QuarkFile libraryDir = null;
+                for (QuarkFile f : rootFiles) {
+                    if (f.isDir && f.filename.trim().equals("资源库")) {
+                        libraryDir = f;
+                        break;
+                    }
+                }
+                if (libraryDir == null) {
+                    postSuccess(callback, songs);
+                    return;
+                }
+                QuarkFile musicDir = null;
+                for (QuarkFile f : listFilesSync(libraryDir.fid)) {
+                    String n = f.filename.trim();
+                    if (f.isDir && (n.equals("音乐") || n.equalsIgnoreCase("music"))) {
+                        musicDir = f;
+                        break;
+                    }
+                }
+                if (musicDir == null) {
+                    postSuccess(callback, songs);
+                    return;
+                }
+                scanMusicFolder("/资源库/音乐", musicDir, songs, 0);
+                postSuccess(callback, songs);
+            } catch (Exception e) {
+                Log.e(TAG, "fetchMusicLibrary failed", e);
+                postError(callback, "扫描网盘音乐库失败：" + e.getMessage());
+            }
+        });
+    }
+
+    private void scanMusicFolder(String path, QuarkFile folder, List<MusicSong> out, int depth) throws Exception {
+        if (depth > 4 || out.size() >= 2000) return;
+        List<QuarkFile> children = listFilesSync(folder.fid);
+        String bgUrl = pickMusicBackground(folder, children);
+        String artistFromFolder = depth == 0 ? "" : folder.filename.trim();
+        List<QuarkFile> subDirs = new ArrayList<>();
+        for (QuarkFile f : children) {
+            if (isIgnoredFolderOrFile(f.filename)) continue;
+            if (f.isDir) {
+                subDirs.add(f);
+            } else if (isAudioFile(f.filename)) {
+                String title = cleanTitle(f.filename);
+                String artist = parseArtistFromTitle(title, artistFromFolder);
+                out.add(new MusicSong(title, artist, path + "/" + f.filename, f.fid, bgUrl));
+            }
+        }
+        // 专辑/歌手子目录排在同目录曲目之后，保持网盘命名顺序。
+        for (QuarkFile sd : subDirs) {
+            scanMusicFolder(path + "/" + sd.filename, sd, out, depth + 1);
+        }
+    }
+
+    /** 同名图 > cover/folder/front/album > 目录里任意图片 > 音频自带缩略图 > null。 */
+    private static String pickMusicBackground(QuarkFile folder, List<QuarkFile> children) {
+        String anyImage = null;
+        String folderName = folder.filename == null ? "" : folder.filename.trim().toLowerCase();
+        for (QuarkFile f : children) {
+            if (f.isDir) continue;
+            String fn = f.filename == null ? "" : f.filename.toLowerCase();
+            if (!(fn.endsWith(".jpg") || fn.endsWith(".jpeg") || fn.endsWith(".png") || fn.endsWith(".webp"))) {
+                continue;
+            }
+            String url = f.thumbnailUrl != null && !f.thumbnailUrl.isEmpty() ? f.thumbnailUrl : null;
+            if (url == null) continue;
+            String pure = fn;
+            int dot = pure.lastIndexOf('.');
+            if (dot > 0) pure = pure.substring(0, dot);
+            if (!folderName.isEmpty() && pure.equals(folderName)) return url;
+            if (anyImage == null) anyImage = url;
+            if (pure.contains("cover") || pure.contains("folder") || pure.contains("front")
+                    || pure.contains("album") || pure.contains("封面")) {
+                return url;
+            }
+        }
+        return anyImage;
+    }
+
+    /** "周杰伦 - 晴天" → 周杰伦；"01 晴天" + 文件夹"周杰伦" → 周杰伦。 */
+    private static String parseArtistFromTitle(String title, String folderArtist) {
+        if (title == null) return folderArtist == null ? "" : folderArtist;
+        int dash = title.indexOf(" - ");
+        if (dash > 0 && dash < title.length() - 3) {
+            return title.substring(0, dash).trim();
+        }
+        return folderArtist == null ? "" : folderArtist;
+    }
+
     private CloudMovie parseFolderIntoMovie(String parentPath, QuarkFile folder) throws Exception {
         String currentPath = parentPath + "/" + folder.filename;
         String thumbnail = findCentralPosterUrl(folder.filename);
@@ -714,7 +841,7 @@ public class QuarkTvClient {
         }
     }
 
-    private static boolean isVideoFile(String filename) {
+    public static boolean isVideoFile(String filename) {
         if (filename == null) return false;
         String lower = filename.toLowerCase();
         return lower.endsWith(".mkv") || lower.endsWith(".mp4") ||
@@ -722,6 +849,16 @@ public class QuarkTvClient {
                 lower.endsWith(".avi") || lower.endsWith(".m2ts") ||
                 lower.endsWith(".flv") || lower.endsWith(".wmv") ||
                 lower.endsWith(".rmvb");
+    }
+
+    public static boolean isAudioFile(String filename) {
+        if (filename == null) return false;
+        String lower = filename.toLowerCase();
+        return lower.endsWith(".mp3") || lower.endsWith(".flac") ||
+                lower.endsWith(".m4a") || lower.endsWith(".aac") ||
+                lower.endsWith(".wav") || lower.endsWith(".ogg") ||
+                lower.endsWith(".opus") || lower.endsWith(".wma") ||
+                lower.endsWith(".ape");
     }
 
     public String findCentralPosterUrl(String title) {

@@ -53,4 +53,31 @@
         <item name="android:layout_marginEnd">10dp</item>
         <item name="android:gravity">center</item>
     </style>
+    <style name="ModeTab">
+        <item name="android:layout_width">112dp</item>
+        <item name="android:layout_height">46dp</item>
+        <item name="android:layout_marginEnd">12dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:background">@drawable/mode_tab_bg</item>
+        <item name="android:textColor">@drawable/mode_tab_text</item>
+        <item name="android:textSize">20sp</item>
+        <item name="android:fontFamily">@string/font_medium</item>
+        <item name="android:focusable">true</item>
+        <item name="android:focusableInTouchMode">true</item>
+        <item name="android:clickable">true</item>
+    </style>
+
+    <!-- Transport control on the 听歌 page: a circular pill with one icon. -->
+    <style name="MusicControlButton">
+        <item name="android:layout_width">52dp</item>
+        <item name="android:layout_height">52dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:background">@drawable/music_row_bg</item>
+        <item name="android:drawableTint">#FFFFFFFF</item>
+        <item name="android:drawablePadding">0dp</item>
+        <item name="android:paddingStart">14dp</item>
+        <item name="android:paddingEnd">14dp</item>
+        <item name="android:focusable">true</item>
+        <item name="android:clickable">true</item>
+    </style>
 </resources>

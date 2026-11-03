@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/modeTabs" android:layout_width="match_parent" android:layout_height="48dp"
+    android:layout_marginBottom="12dp" android:gravity="center_vertical" android:orientation="horizontal">
+    <TextView android:id="@+id/tabApps" style="@style/ModeTab" android:text="@string/mode_tab_apps"
+        android:nextFocusLeft="@id/tabApps" android:nextFocusRight="@+id/tabCinema" />
+    <TextView android:id="@+id/tabCinema" style="@style/ModeTab" android:text="@string/mode_tab_cinema"
+        android:nextFocusLeft="@id/tabApps" android:nextFocusRight="@+id/tabMusic" />
+    <TextView android:id="@+id/tabMusic" style="@style/ModeTab" android:text="@string/mode_tab_music"
+        android:nextFocusLeft="@id/tabCinema" android:nextFocusRight="@id/tabMusic" />
+    <Space android:layout_width="0dp" android:layout_weight="1" android:layout_height="1dp" />
+<TextView
+                    android:id="@+id/btnWifi"
+                    style="@style/TopButton"
+                    android:maxWidth="180dp"
+                    android:singleLine="true"
+                    android:ellipsize="end"
+                    android:text="@string/wifi"
+                    android:drawableStart="@drawable/ic_wifi"
+                    android:layout_height="40dp" android:textSize="13sp" />
+<TextView
+                    android:id="@+id/btnSearch"
+                    style="@style/TopButtonIcon"
+                    android:visibility="gone"
+                    android:contentDescription="@string/search"
+                    android:drawableStart="@drawable/ic_search"
+                    android:layout_height="40dp" android:textSize="13sp" />
+<TextView
+                    android:id="@+id/btnSettings"
+                    style="@style/TopButton"
+                    android:text="@string/settings"
+                    android:drawableStart="@drawable/ic_settings"
+                    android:layout_height="40dp" android:textSize="13sp" />
+</LinearLayout>

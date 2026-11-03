@@ -73,6 +73,9 @@ import android.widget.ScrollView;
 import android.widget.PopupWindow;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.SeekBar;
+import android.widget.EditText;
+import androidx.recyclerview.widget.LinearLayoutManager;
 import android.app.AlertDialog;
 import android.util.Log;
 import org.json.JSONArray;
@@ -184,10 +187,14 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private boolean showInputsPill = true;
     public static final String MODE_APP = "app";
     public static final String MODE_CINEMA = "cinema";
+    public static final String MODE_MUSIC = "music";
     private static final String PREF_MODE_KEY = "current_mode";
     private static final String PREF_NAME_MODE = "cleanyourtv_mode";
 
     private String currentMode = MODE_APP;
+    private View tabApps;
+    private View tabCinema;
+    private View tabMusic;
     private View cinemaContainer;
     private LinearLayout cinemaCategoryTabs;
     private HorizontalScrollView cinemaCardsScroll;
@@ -201,6 +208,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private TextView categoryAllQuarkStatus;
     private RecyclerView categoryAllGrid;
     private final List<CinemaCategory> cinemaCategories = new ArrayList<>();
+    /** Names of the categories last synced, so virtual shelf rows do not get written into the cache. */
+    private final java.util.Set<String> virtualCategoryNames = new java.util.HashSet<>();
     private QuarkAuthDialog quarkAuthDialog;
     private boolean hasSyncedQuarkLibrary = false;
     private boolean isSyncingQuarkLibrary = false;
@@ -208,6 +217,22 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private String currentBackdropTitle = null;
     private String currentBackdropUrl = null;
     private View lastFocusedCinemaCard;
+    private int lastFocusedCardIndex = 0;
+
+    // 听歌 mode
+    private View musicContainer;
+    private MusicPlayer musicPlayer;
+    private MusicScreen musicScreen;
+    private final List<QuarkTvClient.MusicSong> musicSongs = new ArrayList<>();
+
+    // Fuzzy search overlay (cinema library or music library, depending on the mode).
+    private View searchOverlay;
+    private EditText searchInput;
+    private RecyclerView searchResults;
+    private TextView searchEmpty;
+    private TextView searchTitle;
+    private View btnSearch;
+    private boolean searchOpen = false;
     private final ExecutorService cinemaBackdropExecutor = Executors.newFixedThreadPool(2);
     private final LruCache<Integer, Bitmap> cinemaBackdropCache = new LruCache<>(36);
     private final Handler cinemaBackdropHandler = new Handler(Looper.getMainLooper());
@@ -392,7 +417,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        tabApps = findViewById(R.id.tabApps);
+        tabCinema = findViewById(R.id.tabCinema);
+        tabMusic = findViewById(R.id.tabMusic);
         QuarkTvClient.init(this);
+        com.gathin.tvhome.cloud.quark.ImageLoader.init(this);
         LocalStreamServer.getInstance().start();
         density = getResources().getDisplayMetrics().density;
         // config.xml, overlaid by config.json from a pushed theme (see Config and tools/theme.sh).
@@ -474,11 +503,28 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         categoryAllQuarkStatus = findViewById(R.id.categoryAllQuarkStatus);
         categoryAllGrid = findViewById(R.id.categoryAllGrid);
 
+        musicContainer = findViewById(R.id.musicContainer);
+        musicPlayer = new MusicPlayer(this);
+        musicScreen = new MusicScreen(this, musicContainer, musicPlayer, musicSongs,
+                () -> viewForMode(currentMode).requestFocus());
+
+        searchOverlay = findViewById(R.id.searchOverlay);
+        searchInput = findViewById(R.id.searchInput);
+        searchResults = findViewById(R.id.searchResults);
+        searchEmpty = findViewById(R.id.searchEmpty);
+        searchTitle = findViewById(R.id.searchTitle);
+        btnSearch = findViewById(R.id.btnSearch);
+        setUpSearchOverlay();
+
+        // Parse the cache off the main thread so a cold start paints the shelf immediately.
         loadCachedCinemaData();
-        populateCinemaCategory(currentCategoryIndex, 0);
+        refreshVirtualCinemaCategories();
+        populateCinemaCategory(currentCategoryIndex, 0, false);
 
         SharedPreferences modePrefs = getSharedPreferences(PREF_NAME_MODE, MODE_PRIVATE);
         currentMode = modePrefs.getString(PREF_MODE_KEY, MODE_APP);
+        // Restore the active tab before focus listeners can switch to Android's first focus target.
+        viewForMode(currentMode).requestFocus();
         greeting = findViewById(R.id.greeting);
         clockBlock = findViewById(R.id.leftBlock);
         greetingColor = greeting.getCurrentTextColor();
@@ -570,7 +616,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             public void onChildViewDetachedFromWindow(@NonNull View v) {
             }
         });
-        if (dockRow) grid.addItemDecoration(new DockDecoration(COLUMNS, density, cinematic, cfg.alwaysShowNames, cfg.dockOpacity, cfg.dockGlass));
+        // Dock band removed: all app tiles read the same, with names always on.
         // Reduced motion: the tiles are simply there, with no entrance (reloadApps skips it there too).
         if (animations && !reducedMotion) {
             grid.setLayoutAnimation(new LayoutAnimationController(
@@ -669,7 +715,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         btnReorder.setOnClickListener(v -> toggleReorder());
         btnReorder.setVisibility(cfg.reorderButton ? View.VISIBLE : View.GONE);
         if (!cfg.showNetworkPill) btnWifi.setVisibility(View.GONE);
-        showInputsPill = cfg.showInputsPill;
+        showInputsPill = false;
+        btnInputs.setVisibility(View.GONE);
         btnLibraryTop = findViewById(R.id.btnLibraryTop);
         btnLibraryTop.setOnClickListener(v -> {
             onLibraryRequested();
@@ -707,18 +754,65 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             return true;
         });
 
+        tabApps.setOnClickListener(v -> switchMode(MODE_APP));
+        tabCinema.setOnClickListener(v -> switchMode(MODE_CINEMA));
+        tabMusic.setOnClickListener(v -> switchMode(MODE_MUSIC));
+        View.OnFocusChangeListener modeFocus = (view, focused) -> {
+            if (focused) {
+                if (view == tabMusic) switchMode(MODE_MUSIC);
+                else if (view == tabCinema) switchMode(MODE_CINEMA);
+                else switchMode(MODE_APP);
+            }
+        };
+        tabApps.setOnFocusChangeListener(modeFocus);
+        tabCinema.setOnFocusChangeListener(modeFocus);
+        tabMusic.setOnFocusChangeListener(modeFocus);
+        // Standard row navigation: left/right walks the mode tabs, up is the edge,
+        // down enters the pills (top bar) of the current mode.
+        View.OnKeyListener modeKeys = (view, keyCode, event) -> {
+            if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                View next = view == tabMusic ? tabCinema : tabApps;
+                next.requestFocus();
+                return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                View next = view == tabApps ? tabCinema : tabMusic;
+                next.requestFocus();
+                return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) return true;
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                View firstPill = firstTopButton();
+                if (firstPill != null) firstPill.requestFocus();
+                return true;
+            }
+            return false;
+        };
+        tabApps.setOnKeyListener(modeKeys);
+        tabCinema.setOnKeyListener(modeKeys);
+        tabMusic.setOnKeyListener(modeKeys);
+
         // Keep focus on the top bar at its ends and at the top: Android's focus finder would otherwise
         // jump to a tile far below when there is nothing in that direction.
         boolean rtlMenuBar = getResources().getBoolean(R.bool.rtl_menu_bar);
         View.OnKeyListener pillKeys = (v, keyCode, event) -> {
             if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
-            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) return true;
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                viewForMode(currentMode).requestFocus();
+                return true;
+            }
             if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
-                // Back to the dock tile Up came from, not wherever the focus finder lands.
+                // Cinema and music have a middle row (category tabs / playlist) before the content.
                 if (MODE_CINEMA.equals(currentMode)) {
-                    focusFirstCinemaCard();
+                    focusCinemaCategoryTabs();
                     return true;
                 }
+                if (MODE_MUSIC.equals(currentMode)) {
+                    focusFirstMusicRow();
+                    return true;
+                }
+                // Back to the dock tile Up came from, not wherever the focus finder lands.
                 focusTile(lastFocused % COLUMNS);
                 return true;
             }
@@ -733,8 +827,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         btnSettings.setOnKeyListener(pillKeys);
         btnReorder.setOnKeyListener(pillKeys);
         btnLibraryTop.setOnKeyListener(pillKeys);
+        if (btnSearch != null) btnSearch.setOnKeyListener(pillKeys);
         if (advancedEffects) {
-            for (View button : new View[]{btnInputs, btnWifi, btnReorder, btnLibraryTop, btnSettings}) {
+            for (View button : new View[]{btnInputs, btnWifi, btnReorder, btnLibraryTop, btnSearch, btnSettings}) {
+                if (button == null) continue;
                 button.setOnFocusChangeListener((view, focused) -> view.animate()
                         .scaleX(focused ? 1.04f : 1f).scaleY(focused ? 1.04f : 1f)
                         .setDuration(reducedMotion ? Motion.REDUCED_MS : 160).start());
@@ -973,8 +1069,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             heroShown = false;
             hero.setAlpha(0f);
             ambient.setAlpha(0f);
-            heroArt.animate().cancel();
-            heroArt.setAlpha(0f);
+            if (!MODE_CINEMA.equals(currentMode)) {
+                heroArt.animate().cancel();
+                heroArt.setAlpha(0f);
+            }
         }
         if (rebuild) reloadTiles();
         if (animate && entrance && animations && !reducedMotion) {
@@ -1041,6 +1139,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
      * reload() the view that holds focus may no longer show the app it had.
      */
     private void restoreFocus() {
+        if (modeTabsHaveFocus()) {
+            tilesReady = true;
+            return;
+        }
         if (MODE_CINEMA.equals(currentMode)) {
             tilesReady = true;
             focusFirstCinemaCard();
@@ -1074,6 +1176,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onPause() {
         super.onPause();
+        if (musicPlayer != null) musicPlayer.pause();
+        if (musicScreen != null) musicScreen.onPause();
         root.removeCallbacks(showIdleClock);
         endReorder();   // Home or another app while reordering keeps the order so far
         wallpaperPlayer.stop();
@@ -1137,6 +1241,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (musicPlayer != null) {
+            musicPlayer.release();
+            musicPlayer = null;
+        }
         LocalStreamServer.getInstance().stop();
         unregisterReceiver(packageReceiver);
         wallpaperPlayer.close();
@@ -1185,6 +1293,30 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
         int code = event.getKeyCode();
         boolean back = code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_ESCAPE;
+        if (back && searchOpen) {
+            if (!down) closeSearchOverlay();
+            return true;
+        }
+        if (back && MODE_MUSIC.equals(currentMode) && musicScreen.canGoBack()) {
+            if (!down) musicScreen.goBack();
+            return true;
+        }
+        // Media keys drive the 听歌 player wherever focus is, like a hardware remote.
+        if (musicPlayer != null && MODE_MUSIC.equals(currentMode)) {
+            if (code == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || code == KeyEvent.KEYCODE_MEDIA_PLAY
+                    || code == KeyEvent.KEYCODE_MEDIA_PAUSE) {
+                if (down) musicPlayer.togglePlayPause();
+                return true;
+            }
+            if (code == KeyEvent.KEYCODE_MEDIA_NEXT) {
+                if (down) musicPlayer.next();
+                return true;
+            }
+            if (code == KeyEvent.KEYCODE_MEDIA_PREVIOUS) {
+                if (down) musicPlayer.previous();
+                return true;
+            }
+        }
         if (back && categoryAllContainer != null && categoryAllContainer.getVisibility() == View.VISIBLE) {
             if (!down) closeCategoryAll();
             return true;
@@ -2699,7 +2831,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 MODE_APP.equals(currentMode), () -> switchMode(MODE_APP));
         addModeRow(rows, popup, R.drawable.ic_cinema, getString(R.string.cinema_mode),
                 MODE_CINEMA.equals(currentMode), () -> switchMode(MODE_CINEMA));
-        if (MODE_CINEMA.equals(currentMode)) {
+        addModeRow(rows, popup, R.drawable.ic_cinema, getString(R.string.music_mode),
+                MODE_MUSIC.equals(currentMode), () -> switchMode(MODE_MUSIC));
+        if (MODE_CINEMA.equals(currentMode) || MODE_MUSIC.equals(currentMode)) {
             addModeRow(rows, popup, R.drawable.ic_cinema, "夸克账号 / 同步", false,
                     this::showQuarkAccountDialog);
         }
@@ -2944,6 +3078,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             addInputRow(rows, popup, R.drawable.ic_settings, getString(R.string.settings), -1,
                     () -> open(systemIntent(Settings.ACTION_SETTINGS)));
         }
+        // Manual Quark sync: cinema library and music library together, on demand.
+        addInputRow(rows, popup, R.drawable.ic_cinema, getString(R.string.sync_quark_resources), -1, () -> {
+            syncQuarkCinemaData(true);
+            syncMusicLibrary();
+        });
         panel.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
         popup.setWidth(Math.max((int) (220 * density), Math.min(panel.getMeasuredWidth(), (int) (360 * density))));
         dropIn(popup, panel, anchor, getResources().getBoolean(R.bool.rtl_menu_bar) ? Gravity.START : Gravity.END);
@@ -3224,13 +3363,26 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     // ---- Cinema Mode & Mode Switcher -----------------------------------------------------------------
 
     private void updateModePill() {
-        if (btnInputs instanceof TextView) {
-            TextView tv = (TextView) btnInputs;
-            boolean isCinema = MODE_CINEMA.equals(currentMode);
-            tv.setText(isCinema ? R.string.cinema_mode : R.string.app_mode);
-            tv.setCompoundDrawablesRelativeWithIntrinsicBounds(
-                    isCinema ? R.drawable.ic_cinema : R.drawable.ic_apps, 0, 0, 0);
+        tabApps.setSelected(MODE_APP.equals(currentMode));
+        tabCinema.setSelected(MODE_CINEMA.equals(currentMode));
+        tabMusic.setSelected(MODE_MUSIC.equals(currentMode));
+        if (btnSearch != null) {
+            btnSearch.setVisibility(MODE_APP.equals(currentMode) ? View.GONE : View.VISIBLE);
         }
+        if (btnInputs instanceof TextView && !festive) {
+            ((TextView) btnInputs).setText(R.string.inputs);
+            ((TextView) btnInputs).setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_input, 0, 0, 0);
+        }
+    }
+
+    private boolean modeTabsHaveFocus() {
+        return tabApps.hasFocus() || tabCinema.hasFocus() || (tabMusic != null && tabMusic.hasFocus());
+    }
+
+    private View viewForMode(String mode) {
+        if (MODE_CINEMA.equals(mode)) return tabCinema;
+        if (MODE_MUSIC.equals(mode)) return tabMusic;
+        return tabApps;
     }
 
     private void switchMode(String newMode) {
@@ -3244,12 +3396,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private void applyMode(String mode, boolean animate) {
         updateModePill();
         boolean isCinema = MODE_CINEMA.equals(mode);
+        boolean isMusic = MODE_MUSIC.equals(mode);
+        findViewById(R.id.cinemaAtmosphere).setVisibility(isCinema || isMusic ? View.VISIBLE : View.GONE);
         if (glass != null) {
             glass.animate().cancel();
             glass.setAlpha(0f);
             glassShown = false;
         }
+        if (musicContainer != null) musicContainer.setVisibility(isMusic ? View.VISIBLE : View.GONE);
         if (isCinema) {
+            heroArtKey = null;
             grid.setVisibility(View.GONE);
             cinemaContainer.setVisibility(View.VISIBLE);
             categoryAllContainer.setVisibility(View.GONE);
@@ -3262,10 +3418,29 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             heroScrim.setBackground(cinemaScrimDrawable());
             heroScrim.setVisibility(View.VISIBLE);
             hero.setVisibility(View.GONE);
-            populateCinemaCategory(currentCategoryIndex, 0);
-            cinemaContainer.post(this::focusFirstCinemaCard);
+            populateCinemaCategory(currentCategoryIndex, lastFocusedCardIndex, true);
+            cinemaContainer.post(() -> { if (!modeTabsHaveFocus()) focusFirstCinemaCard(); });
             checkQuarkAuthOnCinemaMode();
+        } else if (isMusic) {
+            heroArtKey = null;
+            grid.setVisibility(View.GONE);
+            cinemaContainer.setVisibility(View.GONE);
+            categoryAllContainer.setVisibility(View.GONE);
+            if (ambient != null) {
+                ambient.animate().cancel();
+                ambient.setAlpha(0f);
+                ambient.setVisibility(View.GONE);
+            }
+            heroArt.setVisibility(View.GONE);
+            heroScrim.setVisibility(View.GONE);
+            hero.setVisibility(View.GONE);
+            ensureMusicLibraryLoaded();
+            musicContainer.post(() -> {
+                if (!modeTabsHaveFocus()) focusFirstMusicRow();
+            });
         } else {
+            // Both modes share heroArt; reload the movie image when returning to cinema.
+            currentBackdropUrl = null;
             categoryAllContainer.setVisibility(View.GONE);
             cinemaContainer.setVisibility(View.GONE);
             grid.setVisibility(View.VISIBLE);
@@ -3278,7 +3453,17 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             }
             heroScrim.setBackground(scrimDrawable());
             if (dockTitle) hero.setVisibility(View.VISIBLE);
-            grid.post(() -> focusTile(lastFocused));
+            grid.post(() -> { if (!modeTabsHaveFocus()) focusTile(lastFocused); });
+        }
+        View content = isCinema ? cinemaContainer : (isMusic ? musicContainer : grid);
+        content.animate().cancel();
+        content.setAlpha(1f);
+        content.setTranslationX(0f);
+        if (animate && animations && !reducedMotion) {
+            content.setAlpha(0f);
+            content.setTranslationX((isCinema ? 24f : -24f) * density);
+            content.animate().alpha(1f).translationX(0f).setDuration(220)
+                    .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
         }
     }
 
@@ -3287,14 +3472,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bmp);
         Paint paint = new Paint();
-        // Top 16% subtle vignette for clock and top pills legibility
-        paint.setShader(new LinearGradient(0, 0, 0, h * 0.16f,
-                new int[]{0x88060406, 0x00060406}, new float[]{0f, 1f}, Shader.TileMode.CLAMP));
-        canvas.drawRect(0, 0, w, h * 0.16f, paint);
-        // Bottom 34% gradient for dock legibility, middle 50% is 100% transparent and pure
-        paint.setShader(new LinearGradient(0, h * 0.66f, 0, h,
-                new int[]{0x00060406, 0x77060406, 0xEA060406}, new float[]{0f, 0.45f, 1f}, Shader.TileMode.CLAMP));
-        canvas.drawRect(0, h * 0.66f, w, h, paint);
+        // Protect the title on bright artwork while keeping the right-hand image visible.
+        paint.setShader(new LinearGradient(0, 0, w * 0.85f, 0,
+                new int[]{0xD907101D, 0x7807101D, 0x0007101D}, new float[]{0f, 0.45f, 1f}, Shader.TileMode.CLAMP));
+        canvas.drawRect(0, 0, w, h, paint);
+        paint.setShader(new LinearGradient(0, 0, 0, h * 0.28f,
+                new int[]{0xA607101D, 0x0007101D}, new float[]{0f, 1f}, Shader.TileMode.CLAMP));
+        canvas.drawRect(0, 0, w, h * 0.28f, paint);
+        paint.setShader(new LinearGradient(0, h * 0.55f, 0, h,
+                new int[]{0x0007101D, 0x9907101D, 0xF207101D}, new float[]{0f, 0.5f, 1f}, Shader.TileMode.CLAMP));
+        canvas.drawRect(0, h * 0.55f, w, h, paint);
         return new BitmapDrawable(getResources(), bmp);
     }
 
@@ -3311,6 +3498,235 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             action.run();
         });
         rows.addView(row);
+    }
+
+    // ---- Row navigation helpers (mode tabs ↔ pills ↔ category tabs / playlist ↔ cards) ----------------
+
+    /** Move focus onto the cinema category tab row (电影/电视剧/…), keeping the current tab. */
+    private void focusCinemaCategoryTabs() {
+        if (cinemaCategoryTabs == null || cinemaCategoryTabs.getChildCount() == 0) {
+            focusFirstCinemaCard();
+            return;
+        }
+        int idx = Math.max(0, Math.min(currentCategoryIndex, cinemaCategoryTabs.getChildCount() - 1));
+        View tab = cinemaCategoryTabs.getChildAt(idx);
+        if (tab != null) tab.requestFocus();
+    }
+
+    private void focusFirstMusicRow() { musicScreen.focusContent(); }
+
+    private void ensureMusicLibraryLoaded() { musicScreen.open(); }
+
+    // ---- Cinema shelf: favorites + recently watched -------------------------------------------------
+
+    private static boolean isVirtualCategory(String name) {
+        return "最近观看".equals(name) || "我的收藏".equals(name)
+                || "Recently Watched".equals(name) || "Favorites".equals(name);
+    }
+
+    /**
+     * Rebuild the virtual 最近观看 / 我的收藏 categories at the head of the list, then keep the
+     * user's current category selected by name so a refresh does not yank them to tab 0.
+     */
+    private void refreshVirtualCinemaCategories() {
+        String keep = cinemaCategories.isEmpty() ? null
+                : cinemaCategories.get(Math.max(0, Math.min(currentCategoryIndex, cinemaCategories.size() - 1))).name;
+        List<CinemaCategory> virtual = new ArrayList<>();
+        List<CinemaItem> recents = new ArrayList<>();
+        for (CinemaShelf.Entry e : CinemaShelf.recents(this)) {
+            recents.add(shelfToItem(e));
+        }
+        List<CinemaItem> favorites = new ArrayList<>();
+        for (CinemaShelf.Entry e : CinemaShelf.favorites(this)) {
+            favorites.add(shelfToItem(e));
+        }
+        if (!recents.isEmpty()) {
+            virtual.add(new CinemaCategory(getString(R.string.category_recent), recents));
+        }
+        if (!favorites.isEmpty()) {
+            virtual.add(new CinemaCategory(getString(R.string.category_favorites), favorites));
+        }
+        // Drop previous virtual rows, then prepend the fresh ones.
+        for (int i = cinemaCategories.size() - 1; i >= 0; i--) {
+            if (isVirtualCategory(cinemaCategories.get(i).name)) cinemaCategories.remove(i);
+        }
+        cinemaCategories.addAll(0, virtual);
+        currentCategoryIndex = 0;
+        if (keep != null) {
+            for (int i = 0; i < cinemaCategories.size(); i++) {
+                if (keep.equals(cinemaCategories.get(i).name)) {
+                    currentCategoryIndex = i;
+                    break;
+                }
+            }
+        }
+    }
+
+    private CinemaItem shelfToItem(CinemaShelf.Entry e) {
+        return new CinemaItem(e.title, e.meta, 0, 0, e.path, e.fid, e.isDir, null,
+                e.itemType, null, null);
+    }
+
+    /** MENU / hold-OK on a cinema card: toggle its favorite flag and refresh the shelf rows. */
+    private void toggleFavoriteFor(CinemaItem item) {
+        if (item == null || item.isViewAll) return;
+        boolean now = CinemaShelf.toggleFavorite(this, item.title, item.meta, item.quarkPath, item.fid,
+                item.isDir, item.itemType);
+        Toast.makeText(this, now ? R.string.favorite_added : R.string.favorite_removed, Toast.LENGTH_SHORT).show();
+        refreshVirtualCinemaCategories();
+        renderCinemaCategoryTabs(true);
+    }
+
+    private void recordWatched(CinemaItem item) {
+        if (item == null || item.isViewAll) return;
+        CinemaShelf.recordWatched(this, item.title, item.meta, item.quarkPath, item.fid, item.isDir, item.itemType);
+        refreshVirtualCinemaCategories();
+    }
+
+    private void recordWatchedSub(CinemaSubItem sub) {
+        if (sub == null) return;
+        CinemaShelf.recordWatched(this, sub.title, sub.meta, sub.quarkPath, sub.fid, sub.isDir, 0);
+        refreshVirtualCinemaCategories();
+    }
+
+    // ---- Fuzzy search overlay -----------------------------------------------------------------------
+
+    private void setUpSearchOverlay() {
+        if (searchOverlay == null) return;
+        if (btnSearch != null) {
+            btnSearch.setOnClickListener(v -> openSearchOverlay());
+        }
+        if (searchResults != null) {
+            searchResults.setLayoutManager(new LinearLayoutManager(this));
+        }
+        if (searchInput != null) {
+            searchInput.addTextChangedListener(new android.text.TextWatcher() {
+                @Override
+                public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+                }
+
+                @Override
+                public void onTextChanged(CharSequence s, int start, int before, int count) {
+                    runSearch(s == null ? "" : s.toString());
+                }
+
+                @Override
+                public void afterTextChanged(android.text.Editable s) {
+                }
+            });
+        }
+        if (searchOverlay != null) {
+            searchOverlay.setFocusable(true);
+            searchOverlay.setFocusableInTouchMode(true);
+        }
+    }
+
+    private void openSearchOverlay() {
+        if (searchOverlay == null) return;
+        searchOpen = true;
+        searchOverlay.setVisibility(View.VISIBLE);
+        if (searchTitle != null) {
+            searchTitle.setText(MODE_MUSIC.equals(currentMode) ? R.string.music_mode : R.string.cinema_mode);
+        }
+        if (searchInput != null) {
+            searchInput.setHint(MODE_MUSIC.equals(currentMode) ? R.string.music_search_hint : R.string.search_hint);
+            searchInput.setText("");
+            searchInput.requestFocus();
+        }
+        runSearch("");
+    }
+
+    private void closeSearchOverlay() {
+        searchOpen = false;
+        if (searchOverlay != null) searchOverlay.setVisibility(View.GONE);
+    }
+
+    /** Match titles with substring + pinyin-initials (FuzzySearch); the result list follows the mode. */
+    private void runSearch(String query) {
+        if (searchResults == null) return;
+        final boolean music = MODE_MUSIC.equals(currentMode);
+        final String q = query == null ? "" : query.trim();
+        if (q.isEmpty()) {
+            searchResults.setAdapter(null);
+            if (searchEmpty != null) searchEmpty.setVisibility(View.GONE);
+            return;
+        }
+        List<SearchHit> hits = new ArrayList<>();
+        if (music) {
+            for (QuarkTvClient.MusicSong s : musicSongs) {
+                int score = FuzzySearch.score(q, s.title);
+                if (score < 0 && s.artist != null && !s.artist.isEmpty()) {
+                    int as = FuzzySearch.score(q, s.artist);
+                    if (as >= 0) score = as + 500;
+                }
+                if (score >= 0) hits.add(new SearchHit(score, s.title, s.artist, s, null, null));
+            }
+        } else {
+            for (CinemaCategory cat : cinemaCategories) {
+                if (isVirtualCategory(cat.name)) continue;
+                for (CinemaItem it : cat.items) {
+                    int score = FuzzySearch.score(q, it.title);
+                    if (score >= 0) hits.add(new SearchHit(score, it.title, cat.name, null, it, null));
+                }
+            }
+        }
+        java.util.Collections.sort(hits, (a, b) -> Integer.compare(a.score, b.score));
+        if (searchEmpty != null) {
+            searchEmpty.setVisibility(hits.isEmpty() ? View.VISIBLE : View.GONE);
+        }
+        searchResults.setAdapter(new RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+            @Override
+            public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+                View v = getLayoutInflater().inflate(R.layout.item_music_row, parent, false);
+                return new RecyclerView.ViewHolder(v) {
+                };
+            }
+
+            @Override
+            public void onBindViewHolder(RecyclerView.ViewHolder holder, int position) {
+                SearchHit hit = hits.get(position);
+                View row = holder.itemView;
+                ((TextView) row.findViewById(R.id.musicRowIndex)).setText(String.valueOf(position + 1));
+                ((TextView) row.findViewById(R.id.musicRowTitle)).setText(hit.title);
+                ((TextView) row.findViewById(R.id.musicRowArtist)).setText(hit.subtitle);
+                TextView badge = row.findViewById(R.id.musicRowBadge);
+                badge.setVisibility(View.GONE);
+                row.setOnClickListener(v -> {
+                    closeSearchOverlay();
+                    if (hit.song != null) {
+                        int idx = musicSongs.indexOf(hit.song);
+                        if (idx >= 0) {
+                            musicPlayer.setQueue(musicSongs, idx);
+                        }
+                    } else if (hit.item != null) {
+                        launchQuarkVideo(hit.item);
+                    }
+                });
+            }
+
+            @Override
+            public int getItemCount() {
+                return hits.size();
+            }
+        });
+    }
+
+    private static final class SearchHit {
+        final int score;
+        final String title;
+        final String subtitle;
+        final QuarkTvClient.MusicSong song;
+        final CinemaItem item;
+        final CinemaSubItem sub;
+
+        SearchHit(int score, String title, String subtitle, QuarkTvClient.MusicSong song, CinemaItem item, CinemaSubItem sub) {
+            this.score = score;
+            this.title = title;
+            this.subtitle = subtitle == null ? "" : subtitle;
+            this.song = song;
+            this.item = item;
+            this.sub = sub;
+        }
     }
 
     private void loadCachedCinemaData() {
@@ -3373,6 +3789,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         try {
             JSONArray arr = new JSONArray();
             for (CinemaCategory cat : cinemaCategories) {
+                // Shelf rows are rebuilt from CinemaShelf on every launch; only real categories are cached.
+                if (isVirtualCategory(cat.name)) continue;
                 JSONObject catObj = new JSONObject();
                 catObj.put("name", cat.name);
                 JSONArray itemsArr = new JSONArray();
@@ -3415,70 +3833,69 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     private void renderCinemaCategoryTabs(boolean animate) {
         if (cinemaCategoryTabs == null || cinemaCategories.isEmpty()) return;
-
         int count = cinemaCategories.size();
-        int itemHeight = (int) (38 * density);
-        float containerHeight = 152 * density;
-        float centerTargetY = (containerHeight - itemHeight) / 2f;
-
         if (cinemaCategoryTabs.getChildCount() != count) {
             cinemaCategoryTabs.removeAllViews();
             for (int i = 0; i < count; i++) {
                 final int idx = i;
-                CinemaCategory cat = cinemaCategories.get(i);
                 TextView tab = new TextView(this);
-                tab.setText(cat.name);
                 tab.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f);
-                tab.setFocusable(false);
-                tab.setClickable(true);
+                // Category tabs are their own navigation row: focusable, left/right walks them.
+                tab.setFocusable(true);
+                tab.setFocusableInTouchMode(false);
                 tab.setGravity(Gravity.CENTER);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, itemHeight);
+                        (int) (86 * density), (int) (36 * density));
+                lp.setMarginEnd((int) (10 * density));
                 tab.setLayoutParams(lp);
-                tab.setOnClickListener(v -> populateCinemaCategory(idx, 0));
+                tab.setOnClickListener(v -> populateCinemaCategory(idx, 0, true));
+                tab.setOnKeyListener((v, keyCode, event) -> {
+                    if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                        if (idx > 0) cinemaCategoryTabs.getChildAt(idx - 1).requestFocus();
+                        return true;
+                    }
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                        if (idx < count - 1) cinemaCategoryTabs.getChildAt(idx + 1).requestFocus();
+                        return true;
+                    }
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                        View pill = firstTopButton();
+                        if (pill != null) pill.requestFocus();
+                        return true;
+                    }
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                        // Selecting a tab also moves to its cards, the standard row-then-column walk.
+                        populateCinemaCategory(idx, lastFocusedCardIndex, true);
+                        return true;
+                    }
+                    return false;
+                });
+                tab.setOnFocusChangeListener((v, focused) -> {
+                    if (focused && idx != currentCategoryIndex) {
+                        // Walking the tab row swaps the card row; focus stays on the tabs until DOWN.
+                        populateCinemaCategory(idx, lastFocusedCardIndex, false);
+                    }
+                });
                 cinemaCategoryTabs.addView(tab);
             }
         }
-
-        // All four categories remain visible; move the selection instead of clipping the list.
-        float targetY = (containerHeight - count * itemHeight) / 2f;
-
         for (int i = 0; i < count; i++) {
             TextView tab = (TextView) cinemaCategoryTabs.getChildAt(i);
-            if (tab == null) continue;
-            boolean isSelected = (i == currentCategoryIndex);
-
-            tab.setTextColor(isSelected ? 0xFFFFFFFF : 0xFFA6BBC9);
-            tab.setTypeface(null, isSelected ? Typeface.BOLD : Typeface.NORMAL);
-
-            float targetAlpha = 1.0f;
-            float targetScale = 1.0f;
-
-            if (animate && animations) {
-                tab.animate().alpha(targetAlpha).scaleX(targetScale).scaleY(targetScale)
-                        .setDuration(200).start();
-            } else {
-                tab.setAlpha(targetAlpha);
-                tab.setScaleX(targetScale);
-                tab.setScaleY(targetScale);
-            }
-        }
-
-        cinemaCategoryTabs.setTranslationY(targetY);
-        View cursor = findViewById(R.id.cinemaCategoryCursor);
-        float cursorY = targetY + currentCategoryIndex * itemHeight - centerTargetY;
-        if (animate && animations) {
-            cursor.animate()
-                    .translationY(cursorY)
-                    .setDuration(220)
-                    .setInterpolator(new android.view.animation.DecelerateInterpolator())
-                    .start();
-        } else {
-            cursor.setTranslationY(cursorY);
+            boolean selected = i == currentCategoryIndex;
+            tab.setText(cinemaCategories.get(i).name);
+            tab.setTextColor(selected ? 0xFFEAF8FF : 0xFF91A9BE);
+            tab.setTypeface(null, selected ? Typeface.BOLD : Typeface.NORMAL);
+            tab.setBackgroundResource(selected ? R.drawable.category_tab_active : 0);
         }
     }
 
-    private void populateCinemaCategory(int catIndex, int initialFocusPos) {
+    /**
+     * Render one category's card row. {@code focusCards} decides where focus lands: true moves onto
+     * the cards (DOWN from the tab row), false leaves focus where it is so walking the tab row with
+     * left/right only swaps the highlight.
+     */
+    private void populateCinemaCategory(int catIndex, int initialFocusPos, boolean focusCards) {
         if (cinemaCategories.isEmpty()) return;
         if (catIndex < 0) catIndex = 0;
         if (catIndex >= cinemaCategories.size()) catIndex = cinemaCategories.size() - 1;
@@ -3494,7 +3911,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
             // 显著在提示栏标明当前选中的影视分类名称
             if (cinemaUpDownHint != null) {
-                cinemaUpDownHint.setText("【" + cat.name + "】  ▲ 上下切换类型 ▼");
+                cinemaUpDownHint.setText(getString(R.string.cinema_category_hint, cat.name, cat.items.size()));
             }
 
             // Preload backdrops asynchronously for this category
@@ -3508,7 +3925,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 }
             }
 
-            int displayCount = Math.min(cat.items.size(), 3);
+            int displayCount = Math.min(cat.items.size(), 4);
             for (int j = 0; j < displayCount; j++) {
                 CinemaItem item = cat.items.get(j);
                 View cardItem = createCinemaCardView(cinemaCardsContainer, item, currentCategoryIndex, j, false);
@@ -3527,7 +3944,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
             final int focusIndex = Math.min(initialFocusPos, cinemaCardsContainer.getChildCount() - 1);
             cinemaCardsContainer.post(() -> {
-                if (focusIndex >= 0 && focusIndex < cinemaCardsContainer.getChildCount()) {
+                if (focusCards && MODE_CINEMA.equals(currentMode) && !modeTabsHaveFocus()
+                        && focusIndex >= 0 && focusIndex < cinemaCardsContainer.getChildCount()) {
                     View target = cinemaCardsContainer.getChildAt(focusIndex).findViewById(R.id.card);
                     if (target != null) {
                         target.requestFocus();
@@ -3568,7 +3986,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             ViewGroup.LayoutParams lp = card.getLayoutParams();
             if (lp != null) {
                 lp.width = (int) (112 * density);
-                lp.height = (int) (99 * density);
+                lp.height = (int) (110 * density);
             }
         } else {
             moreLayout.setVisibility(View.GONE);
@@ -3588,33 +4006,30 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             }
             ViewGroup.LayoutParams lp = card.getLayoutParams();
             if (lp != null) {
-                lp.width = (int) (176 * density);
-                lp.height = (int) (99 * density);
+                lp.width = (int) (196 * density);
+                lp.height = (int) (110 * density);
             }
         }
 
         card.setOnKeyListener((v, keyCode, event) -> {
             if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
-            // UP: switch to previous category, or to top pills if at category 0
-            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-                if (currentCategoryIndex > 0) {
-                    populateCinemaCategory(currentCategoryIndex - 1, itemIndex);
-                    return true;
-                } else {
-                    if (glass != null) {
-                        glass.animate().alpha(0f).setDuration(150).start();
-                        glassShown = false;
-                    }
-                    btnInputs.requestFocus();
-                    return true;
-                }
+            // MENU / hold-OK: toggle favorite on this title.
+            if (keyCode == KeyEvent.KEYCODE_MENU) {
+                toggleFavoriteFor(item);
+                return true;
             }
-            // DOWN: switch to next category
-            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
-                if (currentCategoryIndex < cinemaCategories.size() - 1) {
-                    populateCinemaCategory(currentCategoryIndex + 1, itemIndex);
-                    return true;
+            // UP: leave the card row for the category tab row above it (standard row walk).
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                lastFocusedCardIndex = itemIndex;
+                if (glass != null) {
+                    glass.animate().alpha(0f).setDuration(150).start();
+                    glassShown = false;
                 }
+                focusCinemaCategoryTabs();
+                return true;
+            }
+            // DOWN: there is no row under the cards; stay put.
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
                 return true;
             }
             // LEFT on leftmost item: stay on card 0, prevent focus escape or overscroll jitter
@@ -3704,33 +4119,36 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     }
 
     private void showCinemaBackdropByTitle(String title, String remoteUrl) {
-        if (title == null) return;
-
-        String bgUrl = com.gathin.tvhome.cloud.quark.QuarkTvClient.getInstance().findCentralBackdropUrl(title);
-        if (bgUrl == null || bgUrl.isEmpty()) {
-            bgUrl = com.gathin.tvhome.cloud.quark.QuarkTvClient.getInstance().findCentralPosterUrl(title);
-        }
+        if (title == null || !MODE_CINEMA.equals(currentMode)) return;
+        String bgUrl = QuarkTvClient.getInstance().findCentralBackdropUrl(title);
+        if (bgUrl == null || bgUrl.isEmpty()) bgUrl = QuarkTvClient.getInstance().findCentralPosterUrl(title);
         if (bgUrl == null || bgUrl.isEmpty()) bgUrl = remoteUrl;
-        if (bgUrl != null && !bgUrl.isEmpty()) {
-            if (bgUrl.equals(currentBackdropUrl)) return;
-            currentBackdropUrl = bgUrl;
-            currentBackdropTitle = title;
-            com.gathin.tvhome.cloud.quark.ImageLoader.load(bgUrl, bmp -> {
-                if (bmp != null) {
-                    heroArt.post(() -> {
-                        heroArt.animate().cancel();
-                        heroArt.setVisibility(View.VISIBLE);
-                        if (heroScrim != null) {
-                            heroScrim.setVisibility(View.VISIBLE);
-                            heroScrim.setBackground(cinemaScrimDrawable());
-                        }
-                        heroArt.setImageBitmap(bmp);
-                        heroArt.setAlpha(0.72f);
-                        heroArt.animate().alpha(0.95f).setDuration(160).start();
-                    });
-                }
-            });
+        currentBackdropTitle = title;
+        if (bgUrl == null || bgUrl.isEmpty()) {
+            currentBackdropUrl = null;
+            heroArt.animate().cancel();
+            heroArt.setImageDrawable(null);
+            heroArt.setAlpha(0f);
+            return;
         }
+        if (bgUrl.equals(currentBackdropUrl)) return;
+        final String requestedUrl = bgUrl;
+        currentBackdropUrl = requestedUrl;
+        com.gathin.tvhome.cloud.quark.ImageLoader.load(requestedUrl, bmp -> {
+            if (isDestroyed() || !MODE_CINEMA.equals(currentMode)
+                    || !requestedUrl.equals(currentBackdropUrl)) return;
+            if (bmp == null) {
+                currentBackdropUrl = null;
+                heroArt.setImageDrawable(null);
+                heroArt.setAlpha(0f);
+                return;
+            }
+            heroArt.animate().cancel();
+            heroArt.setVisibility(View.VISIBLE);
+            heroArt.setImageBitmap(bmp);
+            heroArt.setAlpha(animations && !reducedMotion ? 0.3f : 0.95f);
+            if (animations && !reducedMotion) heroArt.animate().alpha(0.95f).setDuration(220).start();
+        });
     }
 
     private Bitmap decodeCinemaBackdrop(int resId) {
@@ -3785,12 +4203,21 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     }
 
     private void setCinemaOverlayMode(boolean inOverlay) {
+        tabApps.setFocusable(!inOverlay);
+        tabCinema.setFocusable(!inOverlay);
+        if (tabMusic != null) tabMusic.setFocusable(!inOverlay);
         if (btnInputs != null) btnInputs.setFocusable(!inOverlay);
         if (btnWifi != null) btnWifi.setFocusable(!inOverlay);
         View btnSettings = findViewById(R.id.btnSettings);
         if (btnSettings != null) btnSettings.setFocusable(!inOverlay);
         View btnReorder = findViewById(R.id.btnReorder);
         if (btnReorder != null) btnReorder.setFocusable(!inOverlay);
+        if (btnSearch != null) btnSearch.setFocusable(!inOverlay);
+        if (cinemaCategoryTabs != null) {
+            for (int i = 0; i < cinemaCategoryTabs.getChildCount(); i++) {
+                cinemaCategoryTabs.getChildAt(i).setFocusable(!inOverlay);
+            }
+        }
         if (cinemaCardsContainer != null) {
             for (int i = 0; i < cinemaCardsContainer.getChildCount(); i++) {
                 View c = cinemaCardsContainer.getChildAt(i).findViewById(R.id.card);
@@ -4059,7 +4486,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 }
                 currentBackdropTitle = null;
                 currentBackdropUrl = null;
-                populateCinemaCategory(currentCategoryIndex, 0);
+                populateCinemaCategory(currentCategoryIndex, 0, true);
                 updateCategoryAllQuarkStatus();
                 if (forceRefresh) {
                     Toast.makeText(MainActivity.this, "🎉 已同步网盘 " + totalCount + " 部影视大片", Toast.LENGTH_SHORT).show();
@@ -4092,6 +4519,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     }
 
     private void launchQuarkVideo(CinemaItem item) {
+        recordWatched(item);
         if (item == null) return;
         if (!QuarkTvClient.getInstance().isLoggedIn()) {
             new QuarkAuthDialog(
@@ -4169,7 +4597,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         });
     }
 
+    private void syncMusicLibrary() { musicScreen.refresh(); }
+
     private void launchSubMovie(CinemaSubItem movie) {
+        recordWatchedSub(movie);
         if (movie == null) return;
         if (movie.fid != null && !movie.isDir) {
             PlayerActivity.startSingle(this, movie.title, movie.fid);

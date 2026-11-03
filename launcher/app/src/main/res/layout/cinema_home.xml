@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="utf-8"?>
+            <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+                android:id="@+id/cinemaContainer"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:visibility="gone"
+                android:clipChildren="false"
+                android:clipToPadding="false">
+
+                <!-- Focused title and library share one anchored composition at TV viewing distance. -->
+                <LinearLayout
+                    android:id="@+id/cinemaBottomDock"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_gravity="bottom" android:layout_marginBottom="20dp"
+                    android:orientation="vertical" android:clipChildren="false" android:clipToPadding="false">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp" android:text="@string/cinema_kicker"
+                        android:textColor="#8CD9F6" android:textSize="11sp" android:letterSpacing="0.18" />
+                    <TextView android:id="@+id/cinemaHeroTitle"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp" android:layout_marginEnd="160dp" android:layout_marginTop="8dp"
+                        android:textColor="#F1F6FC" android:textSize="36sp" android:textStyle="bold"
+                        android:fontFamily="@string/font_medium" android:maxLines="2" android:ellipsize="end"
+                        android:includeFontPadding="false" />
+                    <TextView android:id="@+id/cinemaHeroMeta"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp" android:layout_marginTop="8dp"
+                        android:textColor="#BACBD9" android:textSize="14sp"
+                        android:singleLine="true" android:ellipsize="end" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp" android:layout_marginTop="10dp" android:layout_marginBottom="24dp"
+                        android:text="@string/cinema_browse_hint" android:textColor="#859DB3" android:textSize="12sp" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="38dp"
+                        android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginBottom="10dp">
+                        <LinearLayout android:id="@+id/cinemaCategoryTabs"
+                            android:layout_width="wrap_content" android:layout_height="match_parent"
+                            android:orientation="horizontal" android:gravity="center_vertical" />
+                        <TextView android:id="@+id/cinemaUpDownHint"
+                            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+                            android:gravity="end" android:textColor="#8EABC0" android:textSize="11sp"
+                            android:singleLine="true" android:ellipsize="end" />
+                    </LinearLayout>
+                    <HorizontalScrollView android:id="@+id/cinemaCardsScroll"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:scrollbars="none" android:overScrollMode="never"
+                        android:clipChildren="false" android:clipToPadding="false">
+                        <LinearLayout android:id="@+id/cinemaCardsContainer"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:orientation="horizontal" android:paddingStart="4dp" android:paddingEnd="4dp"
+                            android:paddingTop="8dp" android:paddingBottom="8dp" />
+                    </HorizontalScrollView>
+                </LinearLayout>
+
+                <!-- Full Category Bottom Frosted Glass Drawer (for View All) -->
+                <FrameLayout
+                    android:id="@+id/categoryAllContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:layout_gravity="bottom"
+                    android:visibility="gone"
+                    android:layout_marginTop="24dp"
+                    android:layout_marginBottom="0dp"
+                    android:layout_marginStart="0dp"
+                    android:layout_marginEnd="0dp"
+                    android:background="@drawable/bg_frosted_drawer"
+                    android:paddingTop="20dp"
+                    android:paddingBottom="16dp"
+                    android:paddingStart="24dp"
+                    android:paddingEnd="24dp"
+                    android:elevation="16dp"
+                    android:clipChildren="false"
+                    android:clipToPadding="false">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:orientation="vertical"
+                        android:clipChildren="false"
+                        android:clipToPadding="false">
+
+                        <!-- Drawer Header: Clean Category Title & Quark Status -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:layout_marginStart="8dp"
+                            android:layout_marginEnd="8dp"
+                            android:layout_marginBottom="12dp">
+
+                            <TextView
+                                android:id="@+id/categoryAllTitle"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:textColor="#FFFFFFFF"
+                                android:textSize="22sp"
+                                android:fontFamily="@string/font_medium" />
+
+                            <TextView
+                                android:id="@+id/categoryAllQuarkStatus"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:textSize="13sp"
+                                android:textColor="#B3FFFFFF"
+                                android:paddingStart="14dp"
+                                android:paddingEnd="14dp"
+                                android:paddingTop="5dp"
+                                android:paddingBottom="5dp"
+                                android:background="@drawable/bg_frosted_dialog"
+                                android:text="● 夸克 4K 直连" />
+                        </LinearLayout>
+
+                        <!-- Hairline frosted divider -->
+                        <View
+                            android:layout_width="match_parent"
+                            android:layout_height="1dp"
+                            android:background="#1FFFFFFF"
+                            android:layout_marginStart="4dp"
+                            android:layout_marginEnd="4dp"
+                            android:layout_marginBottom="16dp" />
+
+                        <androidx.recyclerview.widget.RecyclerView
+                            android:id="@+id/categoryAllGrid"
+                            android:layout_width="match_parent"
+                            android:layout_height="0dp"
+                            android:layout_weight="1"
+                            android:clipChildren="false"
+                            android:clipToPadding="false" />
+                    </LinearLayout>
+                </FrameLayout>
+            </FrameLayout>
