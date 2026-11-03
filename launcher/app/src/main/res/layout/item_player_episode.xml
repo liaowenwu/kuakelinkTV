@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:paddingStart="6dp"
+    android:paddingEnd="6dp"
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp">
+
+    <TextView
+        android:id="@+id/tvEpisodeName"
+        android:layout_width="wrap_content"
+        android:layout_height="44dp"
+        android:minWidth="90dp"
+        android:background="@drawable/bg_player_pill"
+        android:focusable="true"
+        android:clickable="true"
+        android:gravity="center"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:text="第 01 集"
+        android:textColor="@color/color_player_pill_text"
+        android:textSize="15sp"
+        android:textStyle="bold" />
+</FrameLayout>

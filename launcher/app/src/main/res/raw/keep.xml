@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/banner_*,@drawable/cinema_*,@drawable/ic_cinema,@drawable/ic_arrow_forward" />

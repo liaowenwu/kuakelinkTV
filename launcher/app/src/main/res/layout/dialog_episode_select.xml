@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="620dp"
+    android:layout_height="wrap_content"
+    android:layout_gravity="center"
+    android:background="@drawable/bg_frosted_dialog"
+    android:orientation="vertical"
+    android:padding="26dp">
+
+    <!-- Header: Title and Episode Count -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/tvDialogSeriesTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="剧集名称"
+            android:textColor="#FFFFFFFF"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:fontFamily="@string/font_medium" />
+
+        <TextView
+            android:id="@+id/tvDialogSeriesMeta"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="共 36 集 · 4K 原画"
+            android:textColor="#80FFFFFF"
+            android:textSize="13sp" />
+    </LinearLayout>
+
+    <!-- Season Tabs Bar (Visible when series has multiple seasons) -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvSeasonTabs"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:clipToPadding="false"
+        android:visibility="gone" />
+
+    <!-- Resume Playback Pill Button -->
+    <TextView
+        android:id="@+id/btnResumeEpisode"
+        android:layout_width="match_parent"
+        android:layout_height="46dp"
+        android:layout_marginTop="14dp"
+        android:background="@drawable/bg_player_pill_active"
+        android:focusable="true"
+        android:clickable="true"
+        android:gravity="center"
+        android:text="▶ 继续播放 第 01 集"
+        android:textColor="@color/color_player_pill_text"
+        android:textSize="15sp"
+        android:textStyle="bold" />
+
+    <!-- Hairline divider -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginBottom="14dp"
+        android:background="#1FFFFFFF" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="全部剧集"
+        android:textColor="#B3FFFFFF"
+        android:textSize="13sp"
+        android:layout_marginBottom="8dp" />
+
+    <!-- Episodes Grid (Max height scrollable) -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvDialogEpisodes"
+        android:layout_width="match_parent"
+        android:layout_height="220dp"
+        android:clipToPadding="false" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="14dp"
+        android:text="按遥控器【返回键】关闭选集"
+        android:textColor="#4DFFFFFF"
+        android:textSize="12sp" />
+
+</LinearLayout>
