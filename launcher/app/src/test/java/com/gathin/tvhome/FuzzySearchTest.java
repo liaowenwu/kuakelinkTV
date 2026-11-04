@@ -7,6 +7,10 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 public class FuzzySearchTest {
+    @Test public void vowelInitialsFindAnJing() {
+        assertTrue(FuzzySearch.matches("aj", "安静"));
+        assertTrue(FuzzySearch.matches("ajzjl", "安静 - 周杰伦"));
+    }
 
     @Test
     public void substringMatches() {

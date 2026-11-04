@@ -6,6 +6,7 @@ Needs: pip install pypinyin
 Output: launcher/app/src/main/java/com/gathin/tvhome/Pinyin.java
 """
 import sys
+import unicodedata
 
 from pypinyin import pinyin as py_pinyin
 
@@ -13,7 +14,7 @@ OUT = "launcher/app/src/main/java/com/gathin/tvhome/Pinyin.java"
 
 
 def initial_of(reading: str) -> str:
-    r = reading.lower()
+    r = "".join(c for c in unicodedata.normalize("NFD", reading.lower()) if not unicodedata.combining(c))
     for digraph, letter in (("zh", "z"), ("ch", "c"), ("sh", "s")):
         if r.startswith(digraph):
             return letter
@@ -70,7 +71,7 @@ def main() -> int:
             char c = ALT.charAt(i);
             int j = i + 1;
             StringBuilder sb = new StringBuilder();
-            while (j < ALT.length() && Character.isLetter(ALT.charAt(j))) sb.append(ALT.charAt(j++));
+            while (j < ALT.length() && ALT.charAt(j) >= 'a' && ALT.charAt(j) <= 'z') sb.append(ALT.charAt(j++));
             ALT_MAP.put(c, sb.toString());
             i = j;
         }

@@ -36,6 +36,8 @@ final class MusicPlayer {
         void onPlayingChanged(boolean playing);
 
         void onError(String message);
+
+        void onEmbeddedMetadata(String fid, String lyrics, byte[] artwork);
     }
 
     private static final String TAG = "MusicPlayer";
@@ -108,7 +110,8 @@ final class MusicPlayer {
         playRequested = true;
         QuarkTvClient.MusicSong song = queue.get(index);
         ensurePlayer();
-        player.pause();
+        player.stop();
+        player.clearMediaItems();
         if (listener != null) listener.onSongChanged(index, song);
         QuarkTvClient.getInstance().getPlaybackUrl(song.fid, new QuarkTvClient.Callback<String>() {
             @Override
@@ -116,7 +119,7 @@ final class MusicPlayer {
                 if (released) return;
                 handler.post(() -> {
                     if (released || player == null || request != requestId) return;
-                    player.setMediaItem(MediaItem.fromUri(url));
+                    player.setMediaItem(new MediaItem.Builder().setUri(url).setMediaId(song.fid).build());
                     player.prepare();
                     player.setPlayWhenReady(playRequested);
                 });
@@ -209,6 +212,36 @@ final class MusicPlayer {
                         .build(), /* handleAudioFocus = */ true)
                 .build();
         player.addListener(new Player.Listener() {
+            @Override
+            public void onTracksChanged(androidx.media3.common.Tracks tracks) {
+                MediaItem item = player.getCurrentMediaItem();
+                if (item == null || current() == null || !current().fid.equals(item.mediaId)) return;
+                String text = null;
+                byte[] artwork = null;
+                for (androidx.media3.common.Tracks.Group group : tracks.getGroups()) {
+                    for (int t = 0; t < group.length; t++) {
+                        androidx.media3.common.Metadata metadata = group.getTrackFormat(t).metadata;
+                        if (metadata == null) continue;
+                        for (int i = 0; i < metadata.length(); i++) {
+                            androidx.media3.common.Metadata.Entry entry = metadata.get(i);
+                            if (entry instanceof androidx.media3.extractor.metadata.vorbis.VorbisComment) {
+                                androidx.media3.extractor.metadata.vorbis.VorbisComment tag =
+                                        (androidx.media3.extractor.metadata.vorbis.VorbisComment) entry;
+                                String key = tag.key.toUpperCase(java.util.Locale.ROOT);
+                                if (key.equals("LYRICS") || key.equals("UNSYNCEDLYRICS") || key.equals("SYNCEDLYRICS")) {
+                                    if (text == null || !Lyrics.parse(tag.value).isEmpty()) text = tag.value;
+                                }
+                            } else if (entry instanceof androidx.media3.extractor.metadata.flac.PictureFrame) {
+                                androidx.media3.extractor.metadata.flac.PictureFrame picture =
+                                        (androidx.media3.extractor.metadata.flac.PictureFrame) entry;
+                                if (artwork == null || picture.pictureType == 3) artwork = picture.pictureData;
+                            }
+                        }
+                    }
+                }
+                if (listener != null) listener.onEmbeddedMetadata(item.mediaId, text, artwork);
+            }
+
             @Override
             public void onIsPlayingChanged(boolean isPlaying) {
                 if (listener != null) listener.onPlayingChanged(isPlaying);

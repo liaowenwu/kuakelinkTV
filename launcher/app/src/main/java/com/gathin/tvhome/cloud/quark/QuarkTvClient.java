@@ -237,6 +237,7 @@ public class QuarkTvClient {
 
     public void logout() {
         prefs.edit().remove(KEY_ACCESS_TOKEN).remove(KEY_REFRESH_TOKEN).remove(KEY_EXPIRES_AT).apply();
+        appContext.getSharedPreferences("music_index", Context.MODE_PRIVATE).edit().clear().apply();
         dirFidCache.clear();
         videoFileCache.clear();
     }
@@ -432,35 +433,7 @@ public class QuarkTvClient {
                     return;
                 }
 
-                String pathname = "/file";
-                Map<String, String> query = new HashMap<>();
-                query.put("method", "list");
-                query.put("parent_fid", (parentFid == null || parentFid.isEmpty()) ? "0" : parentFid);
-                query.put("order_by", "3");
-                query.put("desc", "1");
-                query.put("page_size", "100");
-                query.put("page_index", "0");
-
-                String respStr = executeOpenApi("GET", pathname, query, null, true);
-                JSONObject json = new JSONObject(respStr);
-                JSONObject data = json.optJSONObject("data");
-                List<QuarkFile> list = new ArrayList<>();
-                if (data != null && data.has("files")) {
-                    JSONArray arr = data.getJSONArray("files");
-                    for (int i = 0; i < arr.length(); i++) {
-                        JSONObject f = arr.getJSONObject(i);
-                        list.add(new QuarkFile(
-                                f.optString("fid"),
-                                f.optString("parent_fid"),
-                                f.optString("filename"),
-                                f.optLong("size"),
-                                f.optInt("isdir") == 1,
-                                f.optString("file_type"),
-                                f.optString("thumbnail_url")
-                        ));
-                    }
-                }
-                postSuccess(callback, list);
+                postSuccess(callback, listFilesSync(parentFid));
             } catch (Exception e) {
                 postError(callback, "读取文件列表异常：" + e.getMessage());
             }

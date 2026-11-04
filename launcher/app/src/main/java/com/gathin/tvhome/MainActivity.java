@@ -719,10 +719,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         btnInputs.setVisibility(View.GONE);
         btnLibraryTop = findViewById(R.id.btnLibraryTop);
         btnLibraryTop.setOnClickListener(v -> {
-            onLibraryRequested();
-            libraryFromTopBar = true;   // closing it goes back to this button, not to the pill after the last row
+            openSearchOverlay();
         });
-        btnLibraryTop.setVisibility(cfg.libraryButton && cfg.appLibrary ? View.VISIBLE : View.GONE);
+        ((TextView) btnLibraryTop).setText(R.string.cinema_search);
+        btnLibraryTop.setContentDescription(getString(R.string.cinema_search));
+        ((TextView) btnLibraryTop).setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_search, 0, 0, 0);
+        btnLibraryTop.getLayoutParams().width = ViewGroup.LayoutParams.WRAP_CONTENT;
         iconOnlyButtons = cfg.iconOnlyButtons;
         topMenu = cfg.topMenu;
         wifiIconOnly = iconOnlyButtons && cfg.wifiLabelWidth <= 0;
@@ -1243,6 +1245,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         super.onDestroy();
         if (musicPlayer != null) {
             musicPlayer.release();
+            if (musicScreen != null) musicScreen.close();
             musicPlayer = null;
         }
         LocalStreamServer.getInstance().stop();
@@ -1302,6 +1305,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             return true;
         }
         // Media keys drive the 听歌 player wherever focus is, like a hardware remote.
+        if (!searchOpen && MODE_MUSIC.equals(currentMode) && musicScreen.handlePlayerKey(event)) return true;
         if (musicPlayer != null && MODE_MUSIC.equals(currentMode)) {
             if (code == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || code == KeyEvent.KEYCODE_MEDIA_PLAY
                     || code == KeyEvent.KEYCODE_MEDIA_PAUSE) {
@@ -3367,8 +3371,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         tabCinema.setSelected(MODE_CINEMA.equals(currentMode));
         tabMusic.setSelected(MODE_MUSIC.equals(currentMode));
         if (btnSearch != null) {
-            btnSearch.setVisibility(MODE_APP.equals(currentMode) ? View.GONE : View.VISIBLE);
+            btnSearch.setVisibility(View.GONE);
         }
+        if (btnLibraryTop != null) btnLibraryTop.setVisibility(MODE_CINEMA.equals(currentMode) ? View.VISIBLE : View.GONE);
         if (btnInputs instanceof TextView && !festive) {
             ((TextView) btnInputs).setText(R.string.inputs);
             ((TextView) btnInputs).setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_input, 0, 0, 0);
@@ -3397,7 +3402,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         updateModePill();
         boolean isCinema = MODE_CINEMA.equals(mode);
         boolean isMusic = MODE_MUSIC.equals(mode);
-        findViewById(R.id.cinemaAtmosphere).setVisibility(isCinema || isMusic ? View.VISIBLE : View.GONE);
+        // Let the music bar extend through the page gutters; keep other modes clipped.
+        ((ViewGroup) musicContainer.getParent()).setClipChildren(!isMusic);
+        ((View) findViewById(R.id.leftBlock).getParent()).setVisibility(isMusic ? View.GONE : View.VISIBLE);
+        findViewById(R.id.cinemaAtmosphere).setVisibility(isCinema ? View.VISIBLE : View.GONE);
         if (glass != null) {
             glass.animate().cancel();
             glass.setAlpha(0f);
@@ -3628,17 +3636,26 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (searchTitle != null) {
             searchTitle.setText(MODE_MUSIC.equals(currentMode) ? R.string.music_mode : R.string.cinema_mode);
         }
+        ((TextView) findViewById(R.id.searchHint)).setText(MODE_MUSIC.equals(currentMode) ? R.string.music_search_hint : R.string.search_hint);
         if (searchInput != null) {
             searchInput.setHint(MODE_MUSIC.equals(currentMode) ? R.string.music_search_hint : R.string.search_hint);
             searchInput.setText("");
             searchInput.requestFocus();
         }
         runSearch("");
+        ((ViewGroup) findViewById(R.id.modeTabs).getParent()).setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
     }
 
     private void closeSearchOverlay() {
         searchOpen = false;
+        ((ViewGroup) findViewById(R.id.modeTabs).getParent()).setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
+        View tab = viewForMode(currentMode);
+        tab.setFocusableInTouchMode(true);
+        tab.requestFocus();
         if (searchOverlay != null) searchOverlay.setVisibility(View.GONE);
+        if (MODE_MUSIC.equals(currentMode)) musicContainer.post(() -> {
+            if (MODE_MUSIC.equals(currentMode) && !musicScreen.canGoBack()) musicScreen.focusContent();
+        });
     }
 
     /** Match titles with substring + pinyin-initials (FuzzySearch); the result list follows the mode. */
@@ -3655,6 +3672,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (music) {
             for (QuarkTvClient.MusicSong s : musicSongs) {
                 int score = FuzzySearch.score(q, s.title);
+                if (score < 0) score = FuzzySearch.score(q, s.title + " " + s.artist);
                 if (score < 0 && s.artist != null && !s.artist.isEmpty()) {
                     int as = FuzzySearch.score(q, s.artist);
                     if (as >= 0) score = as + 500;

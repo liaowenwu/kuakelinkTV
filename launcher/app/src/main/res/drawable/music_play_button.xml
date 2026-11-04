@@ -1,0 +1,4 @@
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+ <item android:state_focused="true"><shape android:shape="oval"><solid android:color="#D45672"/><stroke android:width="3dp" android:color="#F1F6EE"/></shape></item>
+ <item><shape android:shape="oval"><solid android:color="#D45672"/></shape></item>
+</selector>

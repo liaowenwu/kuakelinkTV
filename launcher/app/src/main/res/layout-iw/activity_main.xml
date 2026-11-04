@@ -376,10 +376,13 @@
             <include layout="@layout/cinema_home" />
 
             <!-- 听歌 mode: background art, now playing, transport and playlist. -->
-            <include layout="@layout/music_home" />
+            <include layout="@layout/music_home" android:layout_width="match_parent"
+                android:layout_height="match_parent" android:layout_marginLeft="-56dp" android:layout_marginRight="-56dp" />
 
         </FrameLayout>
     </LinearLayout>
+
+    <include layout="@layout/music_player" />
 
     <!-- Fuzzy search over the cinema library or the music library, depending on the current mode. -->
     <include layout="@layout/search_overlay" />

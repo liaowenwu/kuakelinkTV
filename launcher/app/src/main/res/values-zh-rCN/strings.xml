@@ -89,6 +89,7 @@
     <string name="music_error">无法播放这首歌</string>
     <string name="search">搜索</string>
     <string name="search_hint">片名或拼音首字母（如 gmzr）</string>
+    <string name="cinema_search">搜索影片</string>
     <string name="search_empty">没有找到匹配内容</string>
     <string name="category_recent">最近观看</string>
     <string name="category_favorites">我的收藏</string>
@@ -107,10 +108,19 @@
     <string name="music_browse_folder">浏览收藏 →</string>
     <string name="music_select_song">选择一首喜欢的歌</string>
     <string name="music_player_hint">音乐与 MV · 你的私人收藏</string>
-    <string name="music_detail">歌词 / MV</string>
+    <string name="music_detail">打开播放器</string>
     <string name="music_back_library">返回音乐库</string>
-    <string name="music_no_lyrics">暂无歌词\n可在曲目同目录放入同名 .lrc 文件</string>
+    <string name="music_no_lyrics">此曲暂无歌词</string>
     <string name="music_lyrics_loading">正在加载歌词…</string>
     <string name="music_lyrics_error">歌词加载失败</string>
-    <string name="music_search_hint">搜索已浏览的曲目、歌手或拼音首字母</string>
+    <string name="music_search_hint">搜索曲目、歌手或拼音首字母</string>
+    <string name="music_all_songs">全部歌曲</string>
+    <string name="music_find">搜索歌曲</string>
+    <string name="music_list_keys">↑ ↓ 选歌     确定 播放     → 打开播放器</string>
+    <string name="music_player_keys">← → 选择控制     确定 播放 / 暂停     ↑ 调节进度     返回 歌曲列表</string>
+    <string name="music_seek">播放进度 · 左右快退 / 快进 10 秒</string>
+    <string name="music_scan_count">%1$d 首 · 正在发现更多歌曲…</string>
+    <string name="music_ready_count">%1$d 首 · 我的音乐收藏</string>
+    <string name="music_partial_count">%1$d 首 · 部分目录读取失败，可刷新重试</string>
+    <string name="music_login_hint">请选择刷新，登录夸克后加载歌曲。</string>
 </resources>

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto" android:id="@+id/musicDetail" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#000000" android:visibility="gone" android:focusableInTouchMode="true" android:elevation="8dp">
+ <androidx.media3.ui.PlayerView android:id="@+id/musicVideo" android:layout_width="match_parent" android:layout_height="match_parent" app:use_controller="false" app:resize_mode="fit" app:surface_type="texture_view" android:visibility="gone" android:focusable="false"/>
+ <LinearLayout android:id="@+id/musicPlayerOverlay" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:background="@drawable/music_player_bg" android:paddingHorizontal="64dp" android:paddingTop="20dp" android:paddingBottom="14dp">
+ <LinearLayout android:layout_width="match_parent" android:layout_height="40dp" android:gravity="center_vertical" android:orientation="horizontal">
+  <TextView android:id="@+id/musicPlayerHeading" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="@string/music_kicker" android:textSize="12sp" android:letterSpacing="0.2" android:textColor="#BBD3DA" android:maxLines="1" android:ellipsize="end"/>
+  <TextView android:id="@+id/musicCloseDetail" style="@style/TopButton" android:text="@string/music_back_library" android:textSize="12sp" android:layout_height="36dp" android:nextFocusDown="@id/musicPlayPause"/>
+ </LinearLayout>
+ <LinearLayout android:id="@+id/musicAudioBody" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="horizontal" android:gravity="center_vertical">
+  <FrameLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="match_parent" android:layout_marginEnd="28dp">
+   <com.gathin.tvhome.VinylView android:id="@+id/musicDetailArt" android:layout_width="match_parent" android:layout_height="match_parent" android:importantForAccessibility="no"/>
+  </FrameLayout>
+  <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="match_parent" android:orientation="vertical" android:gravity="center_horizontal" android:paddingTop="18dp">
+   <TextView android:id="@+id/musicDetailTitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="28sp" android:textStyle="bold" android:gravity="center" android:textColor="#F2F6F2" android:maxLines="2" android:ellipsize="end"/>
+   <TextView android:id="@+id/musicDetailArtist" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center" android:textSize="14sp" android:textColor="#BDD2D9" android:layout_marginTop="8dp"/>
+   <ScrollView android:id="@+id/musicLyricScroll" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:fillViewport="true" android:scrollbars="none" android:focusable="false" android:descendantFocusability="blocksDescendants">
+    <TextView android:id="@+id/musicLyrics" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center" android:textSize="18sp" android:lineSpacingExtra="8dp" android:textColor="#B1CBD2" android:text="@string/music_no_lyrics"/>
+   </ScrollView>
+  </LinearLayout>
+ </LinearLayout>
+ <LinearLayout android:layout_width="match_parent" android:layout_height="36dp" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginTop="10dp">
+  <TextView android:id="@+id/musicPos" android:layout_width="48dp" android:layout_height="wrap_content" android:text="0:00" android:textSize="12sp" android:textColor="#D2E5E7"/>
+  <SeekBar android:id="@+id/musicSeek" android:layout_width="0dp" android:layout_weight="1" android:layout_height="32dp" android:progressTint="#D6EDE8" android:thumbTint="#EFF6F1" android:progressBackgroundTint="#426477" android:nextFocusDown="@id/musicPlayPause" android:contentDescription="@string/music_seek"/>
+  <TextView android:id="@+id/musicDur" android:layout_width="48dp" android:layout_height="wrap_content" android:gravity="end" android:text="0:00" android:textSize="12sp" android:textColor="#D2E5E7"/>
+ </LinearLayout>
+ <LinearLayout android:layout_width="match_parent" android:layout_height="76dp" android:orientation="horizontal" android:gravity="center">
+  <ImageButton android:id="@+id/musicPrev" android:layout_width="48dp" android:layout_height="48dp" android:background="@drawable/music_round_button" android:src="@drawable/ic_prev" android:contentDescription="@string/music_prev" android:nextFocusRight="@id/musicPlayPause" android:nextFocusLeft="@id/musicNext" android:nextFocusUp="@id/musicSeek" android:nextFocusDown="@id/musicPrev"/>
+  <ImageButton android:id="@+id/musicPlayPause" android:layout_width="64dp" android:layout_height="64dp" android:layout_marginHorizontal="24dp" android:background="@drawable/music_play_button" android:src="@drawable/ic_play" android:contentDescription="@string/music_play_pause" android:nextFocusLeft="@id/musicPrev" android:nextFocusRight="@id/musicNext" android:nextFocusUp="@id/musicSeek" android:nextFocusDown="@id/musicPlayPause"/>
+  <ImageButton android:id="@+id/musicNext" android:layout_width="48dp" android:layout_height="48dp" android:background="@drawable/music_round_button" android:src="@drawable/ic_next" android:contentDescription="@string/music_next" android:nextFocusLeft="@id/musicPlayPause" android:nextFocusRight="@id/musicPrev" android:nextFocusUp="@id/musicSeek" android:nextFocusDown="@id/musicNext"/>
+ </LinearLayout>
+ <TextView android:layout_width="match_parent" android:layout_height="20dp" android:gravity="center" android:text="@string/music_player_keys" android:textSize="11sp" android:textColor="#A8C3CC"/>
+</LinearLayout>
+ </FrameLayout>

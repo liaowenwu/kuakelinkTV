@@ -1,47 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
- android:id="@+id/musicContainer" android:layout_width="match_parent" android:layout_height="match_parent" android:visibility="gone">
- <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical">
-  <LinearLayout android:layout_width="match_parent" android:layout_height="48dp" android:gravity="center_vertical" android:orientation="horizontal">
-   <TextView android:id="@+id/musicBack" style="@style/TopButton" android:text="@string/music_back" android:layout_height="38dp" android:textSize="13sp"/>
-   <TextView android:id="@+id/musicPath" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:layout_marginStart="18dp" android:text="@string/music_library" android:textColor="#EDF3F7" android:textSize="20sp" android:textStyle="bold" android:maxLines="1" android:ellipsize="start"/>
-   <TextView android:id="@+id/musicRefresh" style="@style/TopButton" android:text="@string/music_refresh" android:layout_height="38dp" android:textSize="13sp"/>
-  </LinearLayout>
-  <TextView android:id="@+id/musicStatus" android:layout_width="match_parent" android:layout_height="30dp" android:gravity="center_vertical" android:paddingStart="10dp" android:textColor="#9BB5C7" android:textSize="12sp" android:text="@string/music_loading"/>
-  <androidx.recyclerview.widget.RecyclerView android:id="@+id/musicPlaylist" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:paddingBottom="12dp" android:clipToPadding="false"/>
-  <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#344E6074"/>
-  <LinearLayout android:id="@+id/musicTransport" android:layout_width="match_parent" android:layout_height="88dp" android:gravity="center_vertical" android:orientation="horizontal" android:paddingHorizontal="12dp" android:background="#E60C1725">
-   <ImageView android:id="@+id/musicCover" android:layout_width="58dp" android:layout_height="58dp" android:src="@drawable/music_record" android:scaleType="centerCrop" android:importantForAccessibility="no"/>
-   <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical" android:paddingHorizontal="16dp">
-    <TextView android:id="@+id/musicNowTitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/music_select_song" android:textSize="17sp" android:textColor="#EDF3F7" android:textStyle="bold" android:singleLine="true" android:ellipsize="end"/>
-    <TextView android:id="@+id/musicNowArtist" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/music_player_hint" android:layout_marginTop="6dp" android:textSize="12sp" android:textColor="#A5BDCD" android:singleLine="true" android:ellipsize="end"/>
-   </LinearLayout>
-   <TextView android:id="@+id/musicPrev" style="@style/MusicControlButton" android:drawableStart="@drawable/ic_prev" android:contentDescription="@string/music_prev"/>
-   <TextView android:id="@+id/musicPlayPause" style="@style/MusicControlButton" android:layout_marginHorizontal="10dp" android:drawableStart="@drawable/ic_play" android:contentDescription="@string/music_play_pause"/>
-   <TextView android:id="@+id/musicNext" style="@style/MusicControlButton" android:drawableStart="@drawable/ic_next" android:contentDescription="@string/music_next"/>
-   <LinearLayout android:layout_width="180dp" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginHorizontal="18dp">
-    <SeekBar android:id="@+id/musicSeek" android:layout_width="match_parent" android:layout_height="28dp" android:progressTint="#ECC493" android:thumbTint="#ECC493" android:progressBackgroundTint="#3B5267"/>
-    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-     <TextView android:id="@+id/musicPos" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="0:00" android:textColor="#A5BDCD" android:textSize="11sp"/>
-     <TextView android:id="@+id/musicDur" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0:00" android:textColor="#A5BDCD" android:textSize="11sp"/>
-    </LinearLayout>
-   </LinearLayout>
-   <TextView android:id="@+id/musicOpenDetail" style="@style/TopButton" android:text="@string/music_detail" android:textSize="13sp" android:layout_marginStart="0dp"/>
-  </LinearLayout>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/musicContainer" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:visibility="gone" android:paddingTop="12dp">
+ <LinearLayout android:layout_width="match_parent" android:layout_height="54dp" android:layout_marginHorizontal="56dp" android:orientation="horizontal" android:gravity="center_vertical">
+  <TextView android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="@string/music_all_songs" android:textSize="28sp" android:textStyle="bold" android:textColor="#EEF3F1"/>
+  <TextView android:id="@+id/musicSearch" style="@style/TopButton" android:text="@string/music_find" android:textSize="14sp"/>
+  <TextView android:id="@+id/musicRefresh" style="@style/TopButton" android:text="@string/music_refresh" android:textSize="14sp"/>
  </LinearLayout>
- <LinearLayout android:id="@+id/musicDetail" android:layout_width="match_parent" android:layout_height="match_parent" android:layout_marginBottom="89dp" android:orientation="vertical" android:background="#FF0B1624" android:visibility="gone" android:padding="18dp">
-  <LinearLayout android:layout_width="match_parent" android:layout_height="44dp" android:orientation="horizontal" android:gravity="center_vertical">
-   <TextView android:id="@+id/musicDetailTitle" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:textColor="#EDF3F7" android:textSize="19sp" android:textStyle="bold" android:singleLine="true" android:ellipsize="end"/>
-   <TextView android:id="@+id/musicCloseDetail" style="@style/TopButton" android:text="@string/music_back_library" android:layout_height="38dp" android:textSize="13sp"/>
+ <TextView android:id="@+id/musicStatus" android:layout_width="match_parent" android:layout_height="30dp" android:layout_marginHorizontal="56dp" android:textSize="12sp" android:textColor="#ABC3CE" android:gravity="center_vertical"/>
+ <androidx.recyclerview.widget.RecyclerView android:id="@+id/musicPlaylist" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:layout_marginHorizontal="56dp" android:paddingVertical="6dp" android:clipToPadding="false"/>
+ <TextView android:layout_width="match_parent" android:layout_height="24dp" android:layout_marginHorizontal="56dp" android:text="@string/music_list_keys" android:textColor="#ABC3CE" android:textSize="11sp" android:gravity="center_vertical"/>
+ <LinearLayout android:layout_width="match_parent" android:layout_height="76dp" android:gravity="center_vertical" android:orientation="horizontal" android:paddingHorizontal="68dp" android:background="#C8142938">
+  <ImageView android:id="@+id/musicCover" android:layout_width="48dp" android:layout_height="48dp" android:src="@drawable/music_record" android:scaleType="centerCrop" android:importantForAccessibility="no"/>
+  <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical" android:paddingHorizontal="16dp">
+   <TextView android:id="@+id/musicNowTitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/music_select_song" android:textSize="18sp" android:textColor="#EDF3F1" android:singleLine="true" android:ellipsize="end"/>
+   <TextView android:id="@+id/musicNowArtist" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/music_player_hint" android:textSize="12sp" android:textColor="#ABC3CE" android:layout_marginTop="4dp"/>
   </LinearLayout>
-  <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="horizontal" android:gravity="center_vertical">
-   <FrameLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="match_parent">
-    <ImageView android:id="@+id/musicDetailArt" android:layout_width="match_parent" android:layout_height="match_parent" android:padding="18dp" android:scaleType="fitCenter" android:src="@drawable/music_record" android:importantForAccessibility="no"/>
-    <androidx.media3.ui.PlayerView android:id="@+id/musicVideo" android:layout_width="match_parent" android:layout_height="match_parent" app:use_controller="false" app:surface_type="texture_view" android:visibility="gone"/>
-   </FrameLayout>
-   <ScrollView android:layout_width="0dp" android:layout_weight="1" android:layout_height="match_parent" android:fillViewport="true" android:padding="20dp">
-    <TextView android:id="@+id/musicLyrics" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center" android:textSize="21sp" android:lineSpacingExtra="6dp" android:textColor="#ACC1D0" android:text="@string/music_no_lyrics"/>
-   </ScrollView>
-  </LinearLayout>
+  <ImageButton android:id="@+id/musicMiniPlay" android:layout_width="48dp" android:layout_height="48dp" android:background="@drawable/music_round_button" android:src="@drawable/ic_play" android:contentDescription="@string/music_play_pause"/>
+  <TextView android:id="@+id/musicOpenDetail" style="@style/TopButton" android:text="@string/music_detail" android:textSize="14sp"/>
  </LinearLayout>
-</FrameLayout>
+</LinearLayout>

@@ -171,6 +171,7 @@
     <string name="music_error">Could not play this track</string>
     <string name="search">Search</string>
     <string name="search_hint">Title or pinyin initials (e.g. gmzr)</string>
+    <string name="cinema_search">Search films</string>
     <string name="search_empty">No matches</string>
     <string name="category_recent">Recently Watched</string>
     <string name="category_favorites">Favorites</string>
@@ -189,10 +190,19 @@
     <string name="music_browse_folder">Browse collection →</string>
     <string name="music_select_song">Choose a track</string>
     <string name="music_player_hint">Music &amp; MV · Your personal collection</string>
-    <string name="music_detail">Lyrics / MV</string>
+    <string name="music_detail">Open player</string>
     <string name="music_back_library">Back to library</string>
-    <string name="music_no_lyrics">No lyrics yet\nPlace a same-name .lrc file beside this track</string>
+    <string name="music_no_lyrics">No lyrics for this track</string>
     <string name="music_lyrics_loading">Loading lyrics…</string>
     <string name="music_lyrics_error">Lyrics could not be loaded</string>
     <string name="music_search_hint">Search loaded tracks or artist initials</string>
+    <string name="music_all_songs">All songs</string>
+    <string name="music_find">Search songs</string>
+    <string name="music_list_keys">↑ ↓ Select     OK Play     → Player</string>
+    <string name="music_player_keys">← → Controls     OK Play / pause     ↑ Seek     Back Songs</string>
+    <string name="music_seek">Seek · left / right 10 seconds</string>
+    <string name="music_scan_count">%1$d songs · Finding more…</string>
+    <string name="music_ready_count">%1$d songs · Your entire collection</string>
+    <string name="music_partial_count">%1$d songs · Some folders failed. Refresh to retry.</string>
+    <string name="music_login_hint">Choose Refresh to sign in to Quark and load your songs.</string>
 </resources>

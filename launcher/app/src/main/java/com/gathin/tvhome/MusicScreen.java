@@ -1,304 +1,289 @@
 package com.gathin.tvhome;
 
 import android.app.Activity;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.ImageView;
-import android.widget.LinearLayout;
-import android.widget.SeekBar;
-import android.widget.TextView;
-import android.widget.Toast;
+import android.widget.*;
 import androidx.media3.ui.PlayerView;
-import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-import com.gathin.tvhome.cloud.quark.ImageLoader;
 import com.gathin.tvhome.cloud.quark.QuarkTvClient;
 import com.gathin.tvhome.cloud.quark.QuarkTvClient.MusicSong;
-import com.gathin.tvhome.cloud.quark.QuarkTvClient.QuarkFile;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
-/** Music directory browser and persistent transport, sharing one player with its detail view. */
+/** One searchable song list and a remote-friendly full-screen player. */
 final class MusicScreen implements MusicPlayer.Listener {
     private final Activity activity;
-    private final View root;
+    private final View root, detail, playerOverlay;
+    private final android.os.Handler controlsHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private int revealedKey = KeyEvent.KEYCODE_UNKNOWN;
+    private final Runnable hideControls = new Runnable() {
+        @Override public void run() {
+            if (canGoBack() && player.current() != null && player.current().video && player.isPlaying()) {
+                detail.requestFocus();
+                playerOverlay.setVisibility(View.INVISIBLE);
+            }
+        }
+    };
     private final MusicPlayer player;
-    private final List<MusicSong> searchable;
+    private final List<MusicSong> songs;
     private final Runnable focusTabs;
     private final RecyclerView grid;
-    private final TextView status, pathLabel, title, artist, position, duration, play, lyric;
+    private final TextView status, title, artist, position, duration, lyric;
+    private final ImageButton play, miniPlay;
     private final SeekBar seek;
     private final ImageView cover;
-    private final View detail;
     private final PlayerView video;
-    private final Map<String, List<QuarkFile>> cache = new HashMap<>();
-    private final List<String> ids = new ArrayList<>(), names = new ArrayList<>();
-    private final List<MusicSong> tracks = new ArrayList<>();
+    private final VinylView record;
+    private final MusicLibrary library;
+    private com.gathin.tvhome.cloud.ui.QuarkAuthDialog authDialog;
+    private final SongAdapter adapter = new SongAdapter();
     private List<Lyrics.Line> lyrics = new ArrayList<>();
     private String activeFid = "";
-    private int generation;
-    private boolean loading;
-    private boolean focusAfterLoad;
+    private boolean externalLyrics, embeddedLyrics, closed;
+    private int lyricIndex = Integer.MIN_VALUE, selected;
+    private long lastPosition;
 
-    MusicScreen(Activity activity, View root, MusicPlayer player, List<MusicSong> searchable, Runnable focusTabs) {
-        this.activity = activity; this.root = root; this.player = player;
-        this.searchable = searchable; this.focusTabs = focusTabs;
+    MusicScreen(Activity activity, View root, MusicPlayer player, List<MusicSong> songs, Runnable focusTabs) {
+        this.activity = activity; this.root = root; this.player = player; this.songs = songs; this.focusTabs = focusTabs;
         grid = root.findViewById(R.id.musicPlaylist);
         status = root.findViewById(R.id.musicStatus);
-        pathLabel = root.findViewById(R.id.musicPath);
-        title = root.findViewById(R.id.musicNowTitle);
-        artist = root.findViewById(R.id.musicNowArtist);
-        position = root.findViewById(R.id.musicPos);
-        duration = root.findViewById(R.id.musicDur);
-        seek = root.findViewById(R.id.musicSeek);
-        cover = root.findViewById(R.id.musicCover);
-        play = root.findViewById(R.id.musicPlayPause);
-        detail = root.findViewById(R.id.musicDetail);
-        video = root.findViewById(R.id.musicVideo);
-        lyric = root.findViewById(R.id.musicLyrics);
+        title = root.findViewById(R.id.musicNowTitle); artist = root.findViewById(R.id.musicNowArtist);
+        cover = root.findViewById(R.id.musicCover); miniPlay = root.findViewById(R.id.musicMiniPlay);
+        detail = activity.findViewById(R.id.musicDetail);
+        playerOverlay = detail.findViewById(R.id.musicPlayerOverlay);
+        position = detail.findViewById(R.id.musicPos); duration = detail.findViewById(R.id.musicDur);
+        seek = detail.findViewById(R.id.musicSeek); play = detail.findViewById(R.id.musicPlayPause);
+        play.setFocusableInTouchMode(true);
+        video = detail.findViewById(R.id.musicVideo); record = detail.findViewById(R.id.musicDetailArt);
+        lyric = detail.findViewById(R.id.musicLyrics);
+        video.setOnClickListener(v -> showControls());
         player.setListener(this);
-        grid.setLayoutManager(new GridLayoutManager(activity, 3));
-        root.findViewById(R.id.musicBack).setOnClickListener(v -> goBack());
-        root.findViewById(R.id.musicRefresh).setOnClickListener(v -> refresh());
-        root.findViewById(R.id.musicPrev).setOnClickListener(v -> player.previous());
-        root.findViewById(R.id.musicNext).setOnClickListener(v -> player.next());
-        play.setOnClickListener(v -> {
-            if (player.current() == null && !tracks.isEmpty()) player.setQueue(tracks, 0);
-            else player.togglePlayPause();
+        grid.setLayoutManager(new LinearLayoutManager(activity)); grid.setAdapter(adapter);
+        library = new MusicLibrary(activity, (loaded, scanning, errors) -> {
+            if (closed) return;
+            int old = songs.size();
+            boolean append = old <= loaded.size() && (old == 0 || songs.get(0).fid.equals(loaded.get(0).fid));
+            songs.clear(); songs.addAll(loaded);
+            if (append) adapter.notifyItemRangeInserted(old, songs.size() - old); else adapter.notifyDataSetChanged();
+            status.setText(activity.getString(errors > 0 ? R.string.music_partial_count : scanning ? R.string.music_scan_count : R.string.music_ready_count, songs.size()));
+            if (songs.isEmpty() && errors > 0) status.setText(R.string.music_load_error);
+            if (!QuarkTvClient.getInstance().isLoggedIn()) status.setText(R.string.music_login_hint);
+            if (!scanning && songs.isEmpty() && errors == 0) status.setText(R.string.music_empty);
         });
+        root.findViewById(R.id.musicRefresh).setOnClickListener(v -> refresh());
+        root.findViewById(R.id.musicSearch).setOnClickListener(v -> activity.findViewById(R.id.btnSearch).performClick());
+        detail.findViewById(R.id.musicPrev).setOnClickListener(v -> player.previous());
+        detail.findViewById(R.id.musicNext).setOnClickListener(v -> player.next());
+        View.OnClickListener toggle = v -> { if (player.current() == null && !songs.isEmpty()) player.setQueue(songs, 0); else player.togglePlayPause(); };
+        play.setOnClickListener(toggle); miniPlay.setOnClickListener(toggle);
         root.findViewById(R.id.musicOpenDetail).setOnClickListener(v -> openDetail());
-        root.findViewById(R.id.musicCloseDetail).setOnClickListener(v -> goBack());
+        detail.findViewById(R.id.musicCloseDetail).setOnClickListener(v -> goBack());
+        seek.setKeyProgressIncrement(10000);
         seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            public void onProgressChanged(SeekBar bar, int value, boolean user) { if (user) player.seekTo(value); }
+            public void onProgressChanged(SeekBar bar, int value, boolean user) { if (user) { player.seekTo(value); renderLyrics(value); } }
             public void onStartTrackingTouch(SeekBar bar) { }
             public void onStopTrackingTouch(SeekBar bar) { }
         });
+        seek.setOnKeyListener((v, key, event) -> {
+            if (key == KeyEvent.KEYCODE_DPAD_CENTER || key == KeyEvent.KEYCODE_ENTER) {
+                if (event.getAction() == KeyEvent.ACTION_UP) play.requestFocus(); return true;
+            }
+            return false;
+        });
     }
-
     private int dp(int value) { return (int) (value * activity.getResources().getDisplayMetrics().density); }
-
-    void open() {
-        if (!ids.isEmpty() || loading) return;
-        loading = true;
-        status.setText(R.string.music_loading);
-        resolve("0", new String[]{"资源库", "音乐"}, 0, ++generation);
-    }
-
-    private void resolve(String fid, String[] path, int index, int request) {
-        QuarkTvClient.getInstance().listFiles(fid, new QuarkTvClient.Callback<List<QuarkFile>>() {
-            public void onSuccess(List<QuarkFile> files) {
-                if (activity.isDestroyed() || request != generation) return;
-                for (QuarkFile file : files) if (file.isDir && file.filename.equals(path[index])) {
-                    if (index + 1 < path.length) resolve(file.fid, path, index + 1, request);
-                    else { loading = false; enter(file.fid, activity.getString(R.string.music_library)); }
-                    return;
-                }
-                loading = false; status.setText(R.string.music_empty);
-            }
-            public void onError(String error) { if (request == generation) { loading = false; status.setText(R.string.music_load_error); } }
-        });
-    }
-
-    private void enter(String fid, String name) { ids.add(fid); names.add(name); load(); }
-
+    void open() { library.open(false); }
     void refresh() {
-        cache.clear();
-        if (ids.isEmpty()) { loading = false; open(); } else load();
+        root.findViewById(R.id.musicRefresh).requestFocus();
+        if (!QuarkTvClient.getInstance().isLoggedIn()) {
+            if (authDialog != null && authDialog.isShowing()) return;
+            authDialog = new com.gathin.tvhome.cloud.ui.QuarkAuthDialog(activity, () -> library.open(true));
+            authDialog.show();
+        } else library.open(true);
     }
-
-    private void load() {
-        int request = ++generation;
-        focusAfterLoad = grid.hasFocus();
-        if (focusAfterLoad) root.findViewById(R.id.musicRefresh).requestFocus();
-        String fid = ids.get(ids.size() - 1);
-        pathLabel.setText(String.join("  /  ", names));
-        status.setText(R.string.music_loading);
-        root.findViewById(R.id.musicBack).setEnabled(ids.size() > 1);
-        grid.setAdapter(null);
-        if (cache.containsKey(fid)) { render(cache.get(fid)); return; }
-        QuarkTvClient.getInstance().listFiles(fid, new QuarkTvClient.Callback<List<QuarkFile>>() {
-            public void onSuccess(List<QuarkFile> files) {
-                if (activity.isDestroyed() || request != generation) return;
-                cache.put(fid, files); render(files);
-            }
-            public void onError(String error) { if (request == generation) status.setText(R.string.music_load_error); }
-        });
+    void focusContent() {
+        if (!songs.isEmpty()) {
+            int index = Math.min(selected, songs.size() - 1); grid.scrollToPosition(index);
+            grid.post(() -> { RecyclerView.ViewHolder row = grid.findViewHolderForAdapterPosition(index); if (row != null) row.itemView.requestFocus(); });
+        } else root.findViewById(R.id.musicRefresh).requestFocus();
     }
-
-    private static String stem(String name) {
-        int dot = name.lastIndexOf('.');
-        return (dot > 0 ? name.substring(0, dot) : name).trim();
-    }
-
-    private void render(List<QuarkFile> files) {
-        List<QuarkFile> entries = new ArrayList<>();
-        tracks.clear();
-        Map<String, String> lrc = new HashMap<>();
-        String artwork = null;
-        for (QuarkFile file : files) {
-            if (file.filename.toLowerCase(java.util.Locale.ROOT).endsWith(".lrc")) lrc.put(stem(file.filename).toLowerCase(java.util.Locale.ROOT), file.fid);
-            if (file.filename.toLowerCase(java.util.Locale.ROOT).matches(".*\\.(jpg|png|jpeg|webp)$") && artwork == null) artwork = file.thumbnailUrl;
-        }
-        String folderPath = "/资源库/音乐" + (names.size() > 1 ? "/" + String.join("/", names.subList(1, names.size())) : "");
-        String singer = names.contains("歌手分类") && names.indexOf("歌手分类") + 1 < names.size() ? names.get(names.indexOf("歌手分类") + 1) : "";
-        for (QuarkFile file : files) {
-            if (file.isDir) entries.add(file);
-            else if (QuarkTvClient.isAudioFile(file.filename) || QuarkTvClient.isVideoFile(file.filename)) {
-                entries.add(file);
-                String name = stem(file.filename);
-                MusicSong song = new MusicSong(name, singer, folderPath + "/" + file.filename, file.fid,
-                        artwork, lrc.getOrDefault(name.toLowerCase(java.util.Locale.ROOT), ""));
-                tracks.add(song);
-                boolean known = false;
-                for (MusicSong old : searchable) if (old.fid.equals(song.fid)) { known = true; break; }
-                if (!known) searchable.add(song);
-            }
-        }
-        status.setText(entries.isEmpty() ? activity.getString(R.string.music_folder_empty)
-                : activity.getString(R.string.music_item_count, entries.size()));
-        final boolean landing = ids.size() == 1;
-        final int columns = landing ? 2 : 3;
-        ((GridLayoutManager) grid.getLayoutManager()).setSpanCount(columns);
-        grid.setAdapter(new RecyclerView.Adapter<RecyclerView.ViewHolder>() {
-            public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent, int type) {
-                LinearLayout row = new LinearLayout(activity);
-                row.setOrientation(LinearLayout.VERTICAL); row.setGravity(Gravity.CENTER_VERTICAL);
-                row.setPadding(dp(18), dp(12), dp(18), dp(12));
-                row.setBackgroundResource(R.drawable.music_row_bg); row.setFocusable(true); row.setClickable(true);
-                RecyclerView.LayoutParams lp = new RecyclerView.LayoutParams(-1, dp(landing ? 160 : 92));
-                lp.setMargins(dp(4), dp(4), dp(4), dp(4)); row.setLayoutParams(lp);
-                TextView name = new TextView(activity); name.setTextSize(landing ? 28 : 18); name.setTextColor(0xFFE9F1F6);
-                name.setTypeface(null, Typeface.BOLD); name.setMaxLines(2); name.setEllipsize(android.text.TextUtils.TruncateAt.END);
-                row.addView(name);
-                TextView meta = new TextView(activity); meta.setTextSize(12); meta.setTextColor(0xFFAAC1CF);
-                meta.setPadding(0, dp(6), 0, 0); row.addView(meta);
-                return new RecyclerView.ViewHolder(row) { };
-            }
-            public void onBindViewHolder(RecyclerView.ViewHolder holder, int index) {
-                QuarkFile file = entries.get(index);
-                LinearLayout row = (LinearLayout) holder.itemView;
-                ((TextView) row.getChildAt(0)).setText(file.isDir ? file.filename : stem(file.filename));
-                ((TextView) row.getChildAt(1)).setText(file.isDir ? activity.getString(R.string.music_browse_folder) : (QuarkTvClient.isVideoFile(file.filename) ? "MV  ·  VIDEO" : "♪  ·  " + file.filename.substring(file.filename.lastIndexOf('.') + 1).toUpperCase(java.util.Locale.ROOT)));
-                row.setSelected(file.fid.equals(activeFid));
-                row.setOnClickListener(v -> {
-                    if (file.isDir) enter(file.fid, file.filename);
-                    else for (int i = 0; i < tracks.size(); i++) if (tracks.get(i).fid.equals(file.fid)) { player.setQueue(tracks, i); break; }
-                });
-                row.setOnKeyListener((v, key, event) -> {
-                    if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
-                    if (key == KeyEvent.KEYCODE_DPAD_UP && holder.getBindingAdapterPosition() < columns) { focusTabs.run(); return true; }
-                    if (key == KeyEvent.KEYCODE_DPAD_DOWN && holder.getBindingAdapterPosition() / columns == (entries.size() - 1) / columns) { play.requestFocus(); return true; }
-                    return false;
-                });
-            }
-            public int getItemCount() { return entries.size(); }
-        });
-        if (focusAfterLoad) {
-            focusAfterLoad = false;
-            grid.post(() -> {
-                if (root.isShown() && root.findViewById(R.id.musicRefresh).hasFocus()) focusContent();
-            });
-        }
-    }
-
-    void focusContent() { if (grid.getChildCount() > 0) grid.getChildAt(0).requestFocus(); else root.findViewById(R.id.musicRefresh).requestFocus(); }
-    boolean canGoBack() { return detail.getVisibility() == View.VISIBLE || ids.size() > 1; }
+    boolean canGoBack() { return detail.getVisibility() == View.VISIBLE; }
     void goBack() {
-        if (detail.getVisibility() == View.VISIBLE) {
-            detail.setVisibility(View.GONE); video.setPlayer(null);
-            grid.setVisibility(View.VISIBLE);
-            root.findViewById(R.id.musicBack).setFocusable(true);
-            root.findViewById(R.id.musicRefresh).setFocusable(true); root.findViewById(R.id.musicOpenDetail).requestFocus();
-        } else if (ids.size() > 1) { ids.remove(ids.size() - 1); names.remove(names.size() - 1); load(); }
+        controlsHandler.removeCallbacks(hideControls);
+        detail.setVisibility(View.GONE); video.setPlayer(null); record.setPlaying(false);
+        ((View) activity.findViewById(R.id.modeTabs).getParent()).setVisibility(View.VISIBLE);
+        ((ViewGroup) activity.findViewById(R.id.modeTabs).getParent()).setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
+        focusContent();
     }
     private void openDetail() {
         if (player.current() == null) { Toast.makeText(activity, R.string.music_select_song, Toast.LENGTH_SHORT).show(); return; }
         detail.setVisibility(View.VISIBLE);
-        grid.setVisibility(View.INVISIBLE);
-        root.findViewById(R.id.musicBack).setFocusable(false);
-        root.findViewById(R.id.musicRefresh).setFocusable(false);
-        video.setPlayer(player.player()); video.setVisibility(player.current().video ? View.VISIBLE : View.GONE);
-        root.findViewById(R.id.musicDetailArt).setVisibility(player.current().video ? View.GONE : View.VISIBLE);
-        root.findViewById(R.id.musicCloseDetail).requestFocus();
+        ((View) activity.findViewById(R.id.modeTabs).getParent()).setVisibility(View.INVISIBLE);
+        ((ViewGroup) activity.findViewById(R.id.modeTabs).getParent()).setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+        showVideo(); play.requestFocus(); record.setPlaying(player.isPlaying());
     }
-    void onPause() { root.setKeepScreenOn(false); }
+    private void showVideo() {
+        boolean mv = player.current() != null && player.current().video;
+        detail.setBackgroundColor(mv ? 0xFF000000 : android.graphics.Color.TRANSPARENT);
+        video.setPlayer(canGoBack() ? player.player() : null); video.setVisibility(mv ? View.VISIBLE : View.GONE);
+        record.setVisibility(mv ? View.GONE : View.VISIBLE);
+        detail.findViewById(R.id.musicAudioBody).setVisibility(mv ? View.INVISIBLE : View.VISIBLE);
+        playerOverlay.setBackgroundResource(mv ? R.drawable.music_video_controls_bg : R.drawable.music_player_bg);
+        ((TextView) detail.findViewById(R.id.musicPlayerHeading)).setText(mv ? player.current().title : activity.getString(R.string.music_kicker));
+        showControls();
+    }
+    private void showControls() {
+        boolean hidden = playerOverlay.getVisibility() != View.VISIBLE;
+        playerOverlay.setVisibility(View.VISIBLE);
+        if (hidden && canGoBack()) play.requestFocus();
+        controlsHandler.removeCallbacks(hideControls);
+        if (canGoBack() && player.current() != null && player.current().video && player.isPlaying()) controlsHandler.postDelayed(hideControls, 4000);
+    }
+    boolean handlePlayerKey(KeyEvent event) {
+        if (!canGoBack() || player.current() == null || !player.current().video) return false;
+        int key = event.getKeyCode();
+        if (key != KeyEvent.KEYCODE_DPAD_UP && key != KeyEvent.KEYCODE_DPAD_DOWN
+                && key != KeyEvent.KEYCODE_DPAD_LEFT && key != KeyEvent.KEYCODE_DPAD_RIGHT
+                && key != KeyEvent.KEYCODE_DPAD_CENTER && key != KeyEvent.KEYCODE_ENTER) return false;
+        if (event.getAction() == KeyEvent.ACTION_UP && key == revealedKey) { revealedKey = KeyEvent.KEYCODE_UNKNOWN; return true; }
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            if (event.getRepeatCount() > 0 && key == revealedKey) return true;
+            boolean hidden = playerOverlay.getVisibility() != View.VISIBLE;
+            showControls();
+            if (hidden) {
+                revealedKey = key;
+                if (key == KeyEvent.KEYCODE_DPAD_CENTER || key == KeyEvent.KEYCODE_ENTER) player.togglePlayPause();
+                return true;
+            }
+        }
+        return false;
+    }
+    void onPause() { controlsHandler.removeCallbacks(hideControls); root.setKeepScreenOn(false); detail.setKeepScreenOn(false); record.setPlaying(false); }
+    void close() { closed = true; controlsHandler.removeCallbacks(hideControls); library.close(); record.setPlaying(false); if (authDialog != null) authDialog.dismiss(); }
+
+    private final class SongAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+        public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent, int type) {
+            LinearLayout row = new LinearLayout(activity); row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(16), 0, dp(16), 0); row.setFocusable(true); row.setClickable(true); row.setBackgroundResource(R.drawable.music_row_bg);
+            row.setLayoutParams(new RecyclerView.LayoutParams(-1, dp(62)));
+            TextView number = new TextView(activity); number.setTextColor(0xFF9AB7C5); number.setTextSize(13); row.addView(number, new LinearLayout.LayoutParams(dp(48), -2));
+            LinearLayout text = new LinearLayout(activity); text.setOrientation(LinearLayout.VERTICAL); row.addView(text, new LinearLayout.LayoutParams(0, -2, 1));
+            TextView name = new TextView(activity); name.setTextSize(19); name.setTextColor(0xFFEDF3F1); name.setSingleLine(true); name.setEllipsize(android.text.TextUtils.TruncateAt.END); text.addView(name);
+            TextView meta = new TextView(activity); meta.setTextSize(11); meta.setTextColor(0xFF9FBAC8); meta.setSingleLine(true); meta.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE); text.addView(meta);
+            TextView format = new TextView(activity); format.setTextColor(0xFFB9CFD3); format.setTextSize(11); format.setGravity(Gravity.END); row.addView(format, new LinearLayout.LayoutParams(dp(66), -2));
+            return new RecyclerView.ViewHolder(row) { };
+        }
+        public void onBindViewHolder(RecyclerView.ViewHolder holder, int index) {
+            MusicSong song = songs.get(index); LinearLayout row = (LinearLayout) holder.itemView;
+            ((TextView) row.getChildAt(0)).setText(song.fid.equals(activeFid) ? "♫" : String.format(java.util.Locale.ROOT, "%02d", index + 1));
+            LinearLayout text = (LinearLayout) row.getChildAt(1);
+            ((TextView) text.getChildAt(0)).setText(song.title);
+            String album = song.path.substring(0, song.path.lastIndexOf('/')); album = album.substring(album.lastIndexOf('/') + 1);
+            ((TextView) text.getChildAt(1)).setText(song.artist.isEmpty() ? album : song.artist + "  ·  " + album);
+            ((TextView) row.getChildAt(2)).setText(song.video ? "MV" : song.path.substring(song.path.lastIndexOf('.') + 1).toUpperCase(java.util.Locale.ROOT));
+            row.setSelected(song.fid.equals(activeFid));
+            row.setOnFocusChangeListener((v, focus) -> { if (focus && holder.getBindingAdapterPosition() >= 0) selected = holder.getBindingAdapterPosition(); });
+            row.setOnClickListener(v -> { int at = holder.getBindingAdapterPosition(); if (at >= 0) player.setQueue(songs, at); });
+            row.setOnKeyListener((v, key, event) -> {
+                if (key == KeyEvent.KEYCODE_DPAD_RIGHT) { if (event.getAction() == KeyEvent.ACTION_DOWN) openDetail(); return true; }
+                if (key == KeyEvent.KEYCODE_DPAD_LEFT || (key == KeyEvent.KEYCODE_DPAD_UP && holder.getBindingAdapterPosition() == 0)) {
+                    if (event.getAction() == KeyEvent.ACTION_DOWN) root.findViewById(R.id.musicSearch).requestFocus(); return true;
+                }
+                return false;
+            });
+        }
+        public int getItemCount() { return songs.size(); }
+    }
 
     public void onSongChanged(int index, MusicSong song) {
-        activeFid = song.fid;
+        String old = activeFid; activeFid = song.fid;
         title.setText(song.title); artist.setText(song.artist.isEmpty() ? (song.video ? "MV" : activity.getString(R.string.music_mode)) : song.artist);
-        cover.setImageResource(R.drawable.music_record);
-        ImageView detailArt = root.findViewById(R.id.musicDetailArt);
-        detailArt.setImageResource(R.drawable.music_record);
-        if (song.backgroundUrl != null && !song.backgroundUrl.isEmpty()) { ImageLoader.load(song.backgroundUrl, cover); ImageLoader.load(song.backgroundUrl, detailArt); }
-        ((TextView) root.findViewById(R.id.musicDetailTitle)).setText(song.title);
-        lyrics.clear(); lyric.setText(R.string.music_no_lyrics);
-        seek.setProgress(0); position.setText("0:00"); duration.setText("0:00");
-        if (grid.getAdapter() != null) grid.getAdapter().notifyDataSetChanged();
-        if (song.video || detail.getVisibility() == View.VISIBLE) openDetail();
+        cover.setImageResource(R.drawable.music_record); record.setArtwork(null);
+        ((TextView) detail.findViewById(R.id.musicDetailTitle)).setText(song.title);
+        ((TextView) detail.findViewById(R.id.musicDetailArtist)).setText(artist.getText());
+        lyrics.clear(); externalLyrics = false; embeddedLyrics = false; lyricIndex = Integer.MIN_VALUE; lastPosition = 0;
+        lyric.setText(R.string.music_lyrics_loading); seek.setProgress(0); position.setText("0:00"); duration.setText("0:00");
+        for (int i = 0; i < songs.size(); i++) {
+            if (songs.get(i).fid.equals(old) || songs.get(i).fid.equals(activeFid)) adapter.notifyItemChanged(i);
+            if (songs.get(i).fid.equals(activeFid)) selected = i;
+        }
+        if (song.video) openDetail(); else if (canGoBack()) showVideo();
         if (song.lyricsFid == null || song.lyricsFid.isEmpty()) return;
-        lyric.setText(R.string.music_lyrics_loading);
         QuarkTvClient.getInstance().getPlaybackUrl(song.lyricsFid, new QuarkTvClient.Callback<String>() {
             public void onSuccess(String url) {
                 java.util.concurrent.CompletableFuture.runAsync(() -> {
-                    String text;
                     HttpURLConnection connection = null;
                     try {
                         connection = (HttpURLConnection) new URL(url).openConnection();
                         connection.setConnectTimeout(8000); connection.setReadTimeout(8000);
                         connection.setRequestProperty("User-Agent", QuarkTvClient.USER_AGENT);
+                        String text;
                         try (InputStream input = connection.getInputStream()) {
-                            java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
-                            byte[] chunk = new byte[4096];
-                            int count;
-                            while ((count = input.read(chunk)) != -1) {
-                                if (buffer.size() + count > 1024 * 1024) throw new java.io.IOException("Lyrics too large");
-                                buffer.write(chunk, 0, count);
-                            }
-                            byte[] bytes = buffer.toByteArray();
-                            if (bytes.length > 1024 * 1024) throw new java.io.IOException("Lyrics too large");
-                            text = new String(bytes, StandardCharsets.UTF_8);
+                            java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream(); byte[] chunk = new byte[4096]; int count;
+                            while ((count = input.read(chunk)) != -1) { if (buffer.size() + count > 1024 * 1024) throw new java.io.IOException("Lyrics too large"); buffer.write(chunk, 0, count); }
+                            byte[] bytes = buffer.toByteArray(); text = new String(bytes, StandardCharsets.UTF_8);
                             if (text.indexOf('\uFFFD') >= 0) text = new String(bytes, java.nio.charset.Charset.forName("GB18030"));
                         }
-                        List<Lyrics.Line> parsed = Lyrics.parse(text);
-                        final String plain = text;
-                        activity.runOnUiThread(() -> {
-                            if (activity.isDestroyed() || !song.fid.equals(activeFid)) return;
-                            lyrics = parsed;
-                            lyric.setText(parsed.isEmpty() ? plain : parsed.get(0).text);
-                        });
-                    } catch (Exception e) { activity.runOnUiThread(() -> onError("")); }
+                        final String loaded = text;
+                        activity.runOnUiThread(() -> { if (!closed && song.fid.equals(activeFid) && !loaded.trim().isEmpty()) { externalLyrics = true; setLyrics(loaded); } });
+                    } catch (Exception e) { activity.runOnUiThread(() -> lyricFailure(song.fid)); }
                     finally { if (connection != null) connection.disconnect(); }
                 });
             }
-            public void onError(String error) { if (!activity.isDestroyed() && song.fid.equals(activeFid)) lyric.setText(R.string.music_lyrics_error); }
+            public void onError(String error) { lyricFailure(song.fid); }
         });
     }
-    public void onProgress(long value, long total) {
-        seek.setMax((int) Math.max(1, Math.min(Integer.MAX_VALUE, total))); seek.setProgress((int) Math.max(0, value));
-        position.setText(time(value)); duration.setText(time(total));
-        if (!lyrics.isEmpty()) {
-            int at = Lyrics.indexAt(lyrics, value);
-            String previous = at > 0 ? lyrics.get(at - 1).text : "";
-            String current = at >= 0 ? lyrics.get(at).text : "♪";
-            String next = at + 1 < lyrics.size() ? lyrics.get(at + 1).text : "";
-            android.text.SpannableString text = new android.text.SpannableString(previous + "\n\n" + current + "\n\n" + next);
-            text.setSpan(new android.text.style.ForegroundColorSpan(0xFFF1C28F), previous.length() + 2, previous.length() + 2 + current.length(), 0);
-            lyric.setText(text);
+    private void lyricFailure(String fid) { if (!closed && fid.equals(activeFid) && !embeddedLyrics && !externalLyrics) lyric.setText(R.string.music_no_lyrics); }
+    private void setLyrics(String text) {
+        lyrics = Lyrics.parse(text); lyricIndex = Integer.MIN_VALUE;
+        lyric.setText(lyrics.isEmpty() ? text.trim() : "");
+        ((ScrollView) detail.findViewById(R.id.musicLyricScroll)).scrollTo(0, 0);
+        renderLyrics(lastPosition);
+    }
+    public void onEmbeddedMetadata(String fid, String text, byte[] artwork) {
+        if (closed || !fid.equals(activeFid)) return;
+        if (!externalLyrics && text != null && !text.trim().isEmpty()) { embeddedLyrics = true; setLyrics(text); }
+        else if (!externalLyrics && !embeddedLyrics && (player.current().lyricsFid == null || player.current().lyricsFid.isEmpty())) lyric.setText(R.string.music_no_lyrics);
+        if (artwork != null) {
+            BitmapFactory.Options options = new BitmapFactory.Options(); options.inJustDecodeBounds = true;
+            BitmapFactory.decodeByteArray(artwork, 0, artwork.length, options); options.inSampleSize = 1;
+            while (Math.max(options.outWidth, options.outHeight) / options.inSampleSize > 512) options.inSampleSize *= 2;
+            options.inJustDecodeBounds = false; Bitmap image = BitmapFactory.decodeByteArray(artwork, 0, artwork.length, options);
+            if (image != null) { record.setArtwork(image); cover.setImageBitmap(image); }
         }
+    }
+    public void onProgress(long value, long total) {
+        lastPosition = value; seek.setMax((int) Math.max(1, Math.min(Integer.MAX_VALUE, total))); seek.setProgress((int) Math.max(0, value)); seek.setKeyProgressIncrement(10000);
+        position.setText(time(value)); duration.setText(time(total)); renderLyrics(value);
+    }
+    private void renderLyrics(long value) {
+        if (lyrics.isEmpty()) return;
+        int at = Lyrics.indexAt(lyrics, value); if (at == lyricIndex) return; lyricIndex = at;
+        android.text.SpannableStringBuilder text = new android.text.SpannableStringBuilder();
+        for (int i = at - 2; i <= at + 2; i++) {
+            if (text.length() > 0) text.append("\n\n");
+            int start = text.length(); text.append(i == -1 && at == -1 ? "♪" : i >= 0 && i < lyrics.size() ? lyrics.get(i).text : " ");
+            text.setSpan(new android.text.style.ForegroundColorSpan(i == at ? 0xFFF1F6ED : 0xFF9CBBC5), start, text.length(), 0);
+            if (i == at) text.setSpan(new android.text.style.StyleSpan(Typeface.BOLD), start, text.length(), 0);
+        }
+        lyric.setText(text);
     }
     private String time(long ms) { long seconds = Math.max(0, ms) / 1000; return String.format(java.util.Locale.getDefault(), "%d:%02d", seconds / 60, seconds % 60); }
     public void onPlayingChanged(boolean playing) {
-        play.setCompoundDrawablesRelativeWithIntrinsicBounds(playing ? R.drawable.ic_pause : R.drawable.ic_play, 0, 0, 0);
-        root.setKeepScreenOn(playing);
+        play.setImageResource(playing ? R.drawable.ic_pause : R.drawable.ic_play); miniPlay.setImageResource(playing ? R.drawable.ic_pause : R.drawable.ic_play);
+        root.setKeepScreenOn(playing); detail.setKeepScreenOn(playing); record.setPlaying(playing && canGoBack());
+        if (canGoBack()) showControls();
     }
     public void onError(String error) { Toast.makeText(activity, R.string.music_error, Toast.LENGTH_LONG).show(); }
 }
