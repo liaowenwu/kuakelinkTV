@@ -25,3 +25,7 @@ SOFTWARE.
 The Outfit typeface in launcher/app/src/main/res/font/outfit.ttf is copyright
 The Outfit Project Authors and licensed under the SIL Open Font License 1.1,
 see launcher/FONT-LICENSE-OFL.txt.
+
+The photographs in launcher/app/src/main/assets/wallpapers/ are licensed under
+the Pexels License, not the MIT License. See docs/wallpaper-sources.md for credits
+and source links.

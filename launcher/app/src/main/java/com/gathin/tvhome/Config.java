@@ -264,6 +264,30 @@ final class Config {
         return ctx.getExternalFilesDir(null);
     }
 
+    /** Keep bundled backgrounds private so they never overwrite an external theme. */
+    static List<File> defaultWallpapers(Context ctx) {
+        File directory = new File(ctx.getFilesDir(), "default-wallpapers");
+        if (!directory.isDirectory() && !directory.mkdirs()) return Collections.emptyList();
+        for (String name : new String[]{"01-aurora.jpg", "02-lake.jpg", "03-dunes.jpg"}) {
+            File target = new File(directory, name);
+            if (target.isFile() && target.length() > 0) continue;
+            File temporary = new File(directory, name + ".tmp");
+            try {
+                try (InputStream in = ctx.getAssets().open("wallpapers/" + name);
+                     FileOutputStream out = new FileOutputStream(temporary)) {
+                    byte[] buffer = new byte[8192];
+                    int count;
+                    while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
+                }
+                if (!temporary.renameTo(target)) throw new IOException("Cannot save " + name);
+            } catch (IOException e) {
+                temporary.delete();
+                Log.w(TAG, "Cannot load bundled wallpaper " + name, e);
+            }
+        }
+        return WallpaperRotation.images(directory);
+    }
+
     static Config load(Context ctx) {
         Resources res = ctx.getResources();
         List<String> dock = new ArrayList<>(Arrays.asList(res.getStringArray(R.array.dock_apps)));
@@ -422,15 +446,23 @@ final class Config {
             wallpapers.addAll(WallpaperRotation.images(new File(dir, "wallpapers")));
         }
         if (wallpapers.isEmpty() && wallpaper != null) wallpapers.add(wallpaper);
+        if (json == null && wallpapers.isEmpty()) {
+            wallpapers.addAll(defaultWallpapers(ctx));
+            rotationMinutes = 5;
+            wallpaperDim = 40;
+            wallpaperTrueColor = true;
+            wallpaperOrder = WallpaperRotation.ORDER_SEQUENTIAL;
+        }
         // An on-TV wallpaper pick overrides the theme: a filename from the wallpapers/
-        // collection, or "none". Unset means the theme decides (off by default).
+        // collection, or "none". Unset means the theme or bundled defaults decide.
         String wallpaperChoice = choices.getString(WALLPAPER_CHOICE_KEY, null);
         if ("none".equals(wallpaperChoice)) {
             wallpapers.clear();
             wallpaper = null;
             wallpaperEnabled = false;
-        } else if (wallpaperChoice != null && dir != null) {
-            File picked = WallpaperRotation.find(
+        } else if (wallpaperChoice != null) {
+            File picked = WallpaperRotation.find(wallpapers, wallpaperChoice);
+            if (picked == null && dir != null) picked = WallpaperRotation.find(
                     WallpaperRotation.images(new File(dir, "wallpapers")), wallpaperChoice);
             if (picked == null && wallpaperChoice.equals(
                     wallpaper != null ? wallpaper.getName() : "")) picked = wallpaper;
