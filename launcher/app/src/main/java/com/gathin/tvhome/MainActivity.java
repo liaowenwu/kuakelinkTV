@@ -523,6 +523,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
         SharedPreferences modePrefs = getSharedPreferences(PREF_NAME_MODE, MODE_PRIVATE);
         currentMode = modePrefs.getString(PREF_MODE_KEY, MODE_APP);
+        if (savedInstanceState == null && getIntent() != null
+                && getIntent().hasCategory(Intent.CATEGORY_HOME)) {
+            currentMode = MODE_APP;
+            modePrefs.edit().putString(PREF_MODE_KEY, currentMode).apply();
+        }
         // Restore the active tab before focus listeners can switch to Android's first focus target.
         viewForMode(currentMode).requestFocus();
         greeting = findViewById(R.id.greeting);
@@ -935,13 +940,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (openLauncherSettingsIfAsked(intent)) return;
         if (openInputsIfAsked(intent)) return;
         if (intent == null || !intent.hasCategory(Intent.CATEGORY_HOME)) return;
-        if (MODE_CINEMA.equals(currentMode)) {
-            if (categoryAllContainer != null && categoryAllContainer.getVisibility() == View.VISIBLE) {
-                closeCategoryAll();
-            }
-            focusFirstCinemaCard();
-            return;
-        }
+        if (searchOpen) closeSearchOverlay();
+        switchMode(MODE_APP);
+        tabApps.requestFocus();
         grid.scrollToPosition(0);
         lastFocused = 0;
         lastFocusedKey = adapter.getItemCount() > 0 ? adapter.keyAt(0) : null;
